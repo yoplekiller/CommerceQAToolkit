@@ -4,6 +4,7 @@
     /qa 상태 12 반품완료                → 주문 상태 자동완료
     /qa 조회 12                         → 주문 상세 + 이력
     /qa 재고 4 0                        → 재고 설정 (0 = 품절)
+    /qa 상품 테스트 머그컵 19799 5        → 상품 등록 (판매자 등록과 같은 검사)
     /qa 계정 3                          → 테스트 계정 생성
     /qa 쿠폰 5 정액 3000 [만료일수]      → 쿠폰 발급
     /qa 초기화 확인                      → 기본 데이터로 초기화
@@ -145,6 +146,13 @@ def parse_command(text: str) -> dict:
             raise CommandError("사용법: `/qa 재고 <상품ID> <수량>`")
         return {"action": "stock", "product_id": _int(args[0], "상품ID"), "stock": _int(args[1], "수량")}
 
+    if command == "상품":
+        # 이름에 공백이 들어갈 수 있어서 뒤의 두 토큰을 가격 · 재고로, 나머지를 이름으로 본다
+        if len(args) < 3:
+            raise CommandError("사용법: `/qa 상품 <이름> <가격> <재고>`")
+        return {"action": "product", "name": " ".join(args[:-2]),
+                "price": _int(args[-2], "가격"), "stock": _int(args[-1], "재고")}
+
     if command == "계정":
         count = _int(args[0], "개수") if args else 1
         if not 1 <= count <= 20:
@@ -225,6 +233,10 @@ def execute(conn: sqlite3.Connection, parsed: dict, actor: str = "slack") -> str
         product = qa_tools.set_stock(conn, parsed["product_id"], parsed["stock"])
         sold_out = " (품절)" if product["stock"] == 0 else ""
         return f"✅ {product['name']} 재고 → *{product['stock']}개*{sold_out}"
+
+    if action == "product":
+        product = services.register_product(conn, parsed["name"], parsed["price"], parsed["stock"])
+        return f"✅ 상품 #{product['id']} *{product['name']}* 등록 · {_won(product['price'])} · 재고 {product['stock']}개"
 
     if action == "users":
         users = qa_tools.bulk_users(conn, parsed["count"], prefix="slack")

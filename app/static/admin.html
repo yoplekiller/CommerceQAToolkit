@@ -21,6 +21,10 @@
   .detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 4px 0; }
   .detail-grid h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
   .low { color: var(--danger); font-weight: 600; }
+  .register { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 12px; }
+  @media (max-width: 800px) { .register { grid-template-columns: 1fr 1fr; } }
+  .cell-input { width: 100px; padding: 4px 6px; }
+  .cell-input.low { color: var(--danger); font-weight: 600; border-color: #fca5a5; }
 </style>
 </head>
 <body>
@@ -65,10 +69,19 @@
   </section>
 
   <section class="card">
-    <h2>상품 재고 현황</h2>
-    <p class="desc">재고 5개 이하는 빨간색으로 표시합니다. 재고 수정은 QA 도구에서 할 수 있어요.</p>
+    <h2>상품 관리</h2>
+    <p class="desc">상품 등록 · 가격/재고/구매 제한 수정 · 판매중지. 가격을 바꿔도 이미 들어온 주문 금액은 바뀌지 않습니다. 재고 5개 이하는 빨간색.</p>
+
+    <div class="register" data-testid="product-register">
+      <input id="new-name" placeholder="상품명 (1~50자)" data-testid="new-name">
+      <input id="new-price" type="number" min="1" placeholder="가격(원)" data-testid="new-price">
+      <input id="new-stock" type="number" min="0" placeholder="재고" data-testid="new-stock">
+      <input id="new-limit" type="number" min="1" placeholder="1회 구매 제한(선택)" data-testid="new-limit">
+      <button id="register-btn" class="primary" data-testid="register-button">상품 등록</button>
+    </div>
+
     <table data-testid="admin-product-table">
-      <thead><tr><th>ID</th><th>상품</th><th class="num">가격</th><th class="num">재고</th><th>판매 상태</th></tr></thead>
+      <thead><tr><th>ID</th><th>상품</th><th class="num">가격</th><th>재고</th><th>1회 구매 제한</th><th>판매 상태</th><th></th></tr></thead>
       <tbody id="product-body"></tbody>
     </table>
   </section>
@@ -141,11 +154,50 @@ async function loadOrders() {
 async function loadProducts() {
   const products = await api("GET", "/products");
   $("product-body").innerHTML = products.map((p) => `<tr data-testid="admin-product-${p.id}">
-    <td>${p.id}</td><td>${esc(p.name)}</td><td class="num">${won(p.price)}</td>
-    <td class="num ${p.stock <= 5 ? "low" : ""}" data-testid="admin-stock-${p.id}">${p.stock}</td>
-    <td>${p.is_active ? "판매중" : `<span class="tag warn">판매중지</span>`}</td>
+    <td>${p.id}</td><td>${esc(p.name)}</td>
+    <td class="num"><input type="number" min="1" class="cell-input" value="${p.price}" id="price-${p.id}" data-testid="price-input-${p.id}"></td>
+    <td><input type="number" min="0" class="cell-input ${p.stock <= 5 ? "low" : ""}" value="${p.stock}" id="stock-${p.id}" data-testid="stock-input-${p.id}"></td>
+    <td><input type="number" min="1" class="cell-input" value="${p.max_per_order ?? ""}" placeholder="없음" id="limit-${p.id}" data-testid="limit-input-${p.id}"></td>
+    <td><button data-toggle="${p.id}" data-active="${p.is_active}" data-testid="toggle-active-${p.id}">${p.is_active ? "판매중 → 중지" : "판매중지 → 재개"}</button>
+      ${p.is_active ? "" : `<span class="tag warn" data-testid="inactive-tag-${p.id}">판매중지</span>`}</td>
+    <td><button class="primary" data-save="${p.id}" data-testid="save-product-${p.id}">저장</button></td>
   </tr>`).join("");
 }
+
+$("product-body").onclick = async (e) => {
+  const saveId = e.target.dataset.save;
+  const toggleId = e.target.dataset.toggle;
+  if (saveId) {
+    const limit = $(`limit-${saveId}`).value;
+    await withButton(e.target, async () => {
+      const p = await api("PATCH", `/admin/products/${saveId}`, {
+        price: Number($(`price-${saveId}`).value), stock: Number($(`stock-${saveId}`).value),
+        max_per_order: limit === "" ? null : Number(limit),
+      });
+      toast(`${esc(p.name)} 저장: ${won(p.price)}원 · 재고 ${p.stock}개 · 구매 제한 ${p.max_per_order ?? "없음"}`);
+      await loadProducts();
+    });
+  }
+  if (toggleId) {
+    const active = e.target.dataset.active === "1";
+    await withButton(e.target, async () => {
+      const p = await api("PATCH", `/admin/products/${toggleId}`, { is_active: !active });
+      toast(`${esc(p.name)} ${p.is_active ? "판매 재개" : "판매중지"}`);
+      await loadProducts();
+    });
+  }
+};
+
+$("register-btn").onclick = (e) => withButton(e.target, async () => {
+  const limit = $("new-limit").value;
+  const p = await api("POST", "/admin/products", {
+    name: $("new-name").value, price: Number($("new-price").value), stock: Number($("new-stock").value),
+    max_per_order: limit === "" ? null : Number(limit),
+  });
+  toast(`상품 #${p.id} ${esc(p.name)} 등록`);
+  ["new-name", "new-price", "new-stock", "new-limit"].forEach((id) => ($(id).value = ""));
+  await loadProducts();
+});
 
 function updateSelected() {
   $("selected-count").textContent = `${selected.size}건 선택`;

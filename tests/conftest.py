@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from collections import Counter
 
 import pytest
@@ -7,7 +8,9 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 QA_HEADERS = {"X-QA-Token": "local-qa-token"}
-ALL_RULES = [f"R{n}" for n in range(1, 16)]
+SPEC_PATH = Path(__file__).resolve().parents[1] / "docs" / "SPEC.md"
+# 규칙 목록은 SPEC 의 규칙 표(| R1 | ... |)에서 읽는다 → 규칙을 추가해도 여기를 고칠 필요 없음
+ALL_RULES = re.findall(r"^\| (R\d+) \|", SPEC_PATH.read_text(encoding="utf-8"), flags=re.MULTILINE)
 
 
 @pytest.fixture
@@ -57,7 +60,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 def pytest_terminal_summary(terminalreporter):
-    """테스트 실행 끝에 SPEC 규칙(R1~R15)별 테스트 수를 출력하고, 테스트가 없는 규칙을 경고한다."""
+    """테스트 실행 끝에 SPEC 규칙별 테스트 수를 출력하고, 테스트가 없는 규칙을 경고한다."""
     if not _rule_counts:
         return
     terminalreporter.section("도메인 규칙 커버리지 (docs/SPEC.md)")
@@ -66,6 +69,6 @@ def pytest_terminal_summary(terminalreporter):
     for rule in [r for r in ALL_RULES if r in wanted] or ALL_RULES:
         count = _rule_counts.get(rule, 0)
         terminalreporter.write_line(f"{rule:>4}: {count:>3}개" + ("  <- 테스트 없음" if count == 0 else ""))
-    unknown = sorted(r for r in _rule_counts if not re.fullmatch(r"R(1[0-5]|[1-9])", r))
+    unknown = sorted(r for r in _rule_counts if r not in ALL_RULES)
     if unknown:
         terminalreporter.write_line(f"SPEC 에 없는 규칙 번호: {unknown}")

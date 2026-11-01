@@ -66,6 +66,7 @@ def test_parse_orders_count_boundary(count, ok):
     ("계정", {"action": "users", "count": 1}),
     ("쿠폰 5 정률 10 -1", {"action": "coupon", "user_id": 5, "discount_type": "PERCENT", "value": 10, "expires_in_days": -1}),
     ("초기화 확인", {"action": "seed"}),
+    ("상품 테스트 머그컵 19799 5", {"action": "product", "name": "테스트 머그컵", "price": 19799, "stock": 5}),
     ("", {"action": "help"}),
     ("help", {"action": "help"}),
 ])
@@ -81,6 +82,8 @@ def test_parse_other_commands(text, expected):
     ("상태 12 날아감", "알 수 없는 상태"),
     ("쿠폰 5 반값 10", "정액 또는 정률"),
     ("초기화", "초기화 확인"),
+    ("상품 머그컵 1000", "사용법"),
+    ("상품 머그컵 천원 5", "숫자여야"),
     ("삭제 1", "알 수 없는 명령어"),
 ])
 def test_parse_errors(text, message):
@@ -183,3 +186,12 @@ def test_links_use_public_base_url(slack, monkeypatch):
     monkeypatch.setenv("PUBLIC_BASE_URL", "https://example.onrender.com")
     res = slack("주문")
     assert "https://example.onrender.com/admin" in str(res["blocks"])
+
+
+def test_product_command_registers_with_seller_rules(client, slack):
+    """'/qa 상품' 은 판매자 등록과 같은 검사(R16): 정상 등록은 채널 공개, 0원은 INVALID_PRODUCT 비공개."""
+    res = slack("상품 테스트 머그컵 19799 5")
+    assert "상품 #9 *테스트 머그컵* 등록" in res["text"]
+    assert client.get("/products/9").json()["price"] == 19799
+    bad = slack("상품 공짜 0 1")
+    assert bad["response_type"] == "ephemeral" and "INVALID_PRODUCT" in bad["text"]

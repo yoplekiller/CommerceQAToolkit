@@ -3,7 +3,9 @@ from fastapi import APIRouter, Depends, Query
 
 from app import services
 from app.deps import get_conn
-from app.schemas import CartAdd, CheckoutIn, LoginIn, OrderCreate, QuoteIn, ReasonIn, StatusChange, UserCreate
+from app.schemas import (
+    CartAdd, CheckoutIn, LoginIn, OrderCreate, ProductRegister, ProductUpdate, QuoteIn, ReasonIn, StatusChange, UserCreate,
+)
 
 router = APIRouter()
 
@@ -125,3 +127,18 @@ def confirm_purchase(order_id: int, conn=Depends(get_conn)):
 def admin_list_orders(status: str | None = None, limit: int = Query(100, ge=1, le=200), conn=Depends(get_conn)):
     """판매자 어드민 주문 목록 (최신순, status 로 필터) + 상태별 건수"""
     return {"orders": services.list_orders(conn, status, limit), "counts": services.count_orders_by_status(conn)}
+
+
+@router.post("/admin/products", status_code=201)
+def register_product(body: ProductRegister, conn=Depends(get_conn)):
+    """판매자 상품 등록"""
+    return services.register_product(conn, body.name, body.price, body.stock, body.max_per_order, body.is_active)
+
+
+@router.patch("/admin/products/{product_id}")
+def update_product(product_id: int, body: ProductUpdate, conn=Depends(get_conn)):
+    """판매자 상품 수정 (가격 · 재고 · 구매 제한 · 판매중지/재개). 보낸 항목만 바뀐다"""
+    changes = body.model_dump(exclude_unset=True)
+    # name/price/stock/is_active 는 null 로 보내도 '안 바꿈'으로 처리 (null 이 의미 있는 건 구매 제한 해제뿐)
+    changes = {k: v for k, v in changes.items() if v is not None or k == "max_per_order"}
+    return services.update_product(conn, product_id, changes)

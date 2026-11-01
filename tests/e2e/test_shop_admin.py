@@ -146,13 +146,13 @@ def test_admin_bulk_prepare_reports_partial_failure(admin, qa):
 
 def test_full_order_return_flow_across_shop_and_admin(shop, admin):
     """고객 주문 → 판매자 상품준비/발송 → 택배사 배송완료 → 고객 반품 신청 → 판매자 반품 승인 → 재고 복구 (R11)."""
-    stock_before = admin.get_by_test_id(f"admin-stock-{TISSUE}").inner_text()
+    stock_before = admin.get_by_test_id(f"stock-input-{TISSUE}").input_value()
     shop.get_by_test_id(f"add-cart-{TISSUE}").click()
     shop.get_by_test_id("pay-button").click()
     expect(badge(shop, "my-order-1")).to_have_text("결제완료")
 
     admin.get_by_test_id("admin-refresh").click()
-    expect(admin.get_by_test_id(f"admin-stock-{TISSUE}")).to_have_text(str(int(stock_before) - 1))
+    expect(admin.get_by_test_id(f"stock-input-{TISSUE}")).to_have_value(str(int(stock_before) - 1))
     for to, label in (("PREPARING", "상품준비중"), ("SHIPPING", "배송중"), ("DELIVERED", "배송완료")):
         admin.get_by_test_id(f"action-1-{to}").click()
         expect(badge(admin, "admin-order-1")).to_have_text(label)
@@ -166,10 +166,50 @@ def test_full_order_return_flow_across_shop_and_admin(shop, admin):
     expect(admin.get_by_test_id("tab-count-RETURN_REQUESTED")).to_have_text("1")
     admin.get_by_test_id("action-1-RETURNED").click()
     expect(badge(admin, "admin-order-1")).to_have_text("반품완료")
-    expect(admin.get_by_test_id(f"admin-stock-{TISSUE}")).to_have_text(stock_before)
+    expect(admin.get_by_test_id(f"stock-input-{TISSUE}")).to_have_value(stock_before)
 
     shop.get_by_test_id("orders-refresh").click()
     shop.get_by_test_id("timeline-1").click()
     timeline = shop.get_by_test_id("timeline-body-1")
     for actor_line in ("결제완료 (customer)", "배송완료 (carrier)", "반품요청 (customer)", "반품완료 (seller)"):
         expect(timeline).to_contain_text(actor_line)
+
+
+# ---------- 상품 관리 ----------
+
+def test_admin_registers_product_and_shop_shows_it(admin, shop):
+    """어드민에서 상품을 등록하면 쇼핑몰 상품 목록에 바로 나오고 주문할 수 있다."""
+    admin.get_by_test_id("new-name").fill("QA 테스트 머그컵")
+    admin.get_by_test_id("new-price").fill("12000")
+    admin.get_by_test_id("new-stock").fill("2")
+    admin.get_by_test_id("register-button").click()
+    expect(admin.get_by_test_id("admin-product-9")).to_contain_text("QA 테스트 머그컵")
+    expect(admin.get_by_test_id("stock-input-9")).to_have_value("2")
+
+    shop.reload()
+    expect(shop.get_by_test_id("product-card-9")).to_contain_text("12,000원")
+    expect(shop.get_by_test_id("product-card-9")).to_contain_text("2개 남음")
+
+
+def test_admin_invalid_product_shows_error(admin):
+    """가격 0원으로 등록하면 INVALID_PRODUCT 에러가 뜨고 상품이 생기지 않는다 (R16)."""
+    admin.get_by_test_id("new-name").fill("0원 상품")
+    admin.get_by_test_id("new-price").fill("0")
+    admin.get_by_test_id("new-stock").fill("1")
+    admin.get_by_test_id("register-button").click()
+    expect(admin.get_by_test_id("toast-error")).to_contain_text("INVALID_PRODUCT")
+    expect(admin.get_by_test_id("admin-product-9")).to_have_count(0)
+
+
+def test_admin_stock_and_deactivate_reflect_in_shop(admin, shop):
+    """어드민에서 재고 0 저장 → 쇼핑몰 '품절', 판매중지 → 쇼핑몰 '판매중지'로 버튼이 막힌다."""
+    admin.get_by_test_id(f"stock-input-{PEN}").fill("0")
+    admin.get_by_test_id(f"save-product-{PEN}").click()
+    expect(admin.get_by_test_id("toast").last).to_contain_text("재고 0개")
+    admin.get_by_test_id(f"toggle-active-{WATER}").click()
+    expect(admin.get_by_test_id(f"inactive-tag-{WATER}")).to_be_visible()
+
+    shop.reload()
+    expect(shop.get_by_test_id(f"add-cart-{PEN}")).to_have_text("품절")
+    expect(shop.get_by_test_id(f"add-cart-{WATER}")).to_have_text("판매중지")
+    expect(shop.get_by_test_id(f"add-cart-{WATER}")).to_be_disabled()

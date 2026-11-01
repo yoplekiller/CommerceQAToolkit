@@ -18,6 +18,24 @@ class LoginIn(BaseModel):
     email: str
 
 
+class ProductRegister(BaseModel):
+    """판매자 상품 등록 요청."""
+    name: str
+    price: int
+    stock: int
+    max_per_order: int | None = None
+    is_active: bool = True
+
+
+class ProductUpdate(BaseModel):
+    """판매자 상품 수정 요청. 보낸 항목만 바뀐다 (max_per_order 를 null 로 보내면 구매 제한 해제)."""
+    name: str | None = None
+    price: int | None = None
+    stock: int | None = None
+    max_per_order: int | None = None
+    is_active: bool | None = None
+
+
 class CartAdd(BaseModel):
     """장바구니 담기 요청."""
     product_id: int

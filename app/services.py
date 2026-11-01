@@ -74,6 +74,64 @@ def get_product(conn: sqlite3.Connection, product_id: int) -> dict:
     return dict(row)
 
 
+MAX_STOCK = 99_999
+MAX_PRICE = 10_000_000
+MAX_NAME_LENGTH = 50
+
+
+def _validate_product_fields(name: str | None, price: int | None, stock: int | None, max_per_order: int | None) -> None:
+    """판매자 상품 등록/수정 입력 검사 (R16). None 인 항목은 검사하지 않는다(수정 시 안 바꾸는 항목)."""
+    if name is not None and not 1 <= len(name.strip()) <= MAX_NAME_LENGTH:
+        raise DomainError("INVALID_PRODUCT", f"상품명은 1~{MAX_NAME_LENGTH}자여야 합니다.")
+    if price is not None and not 1 <= price <= MAX_PRICE:
+        raise DomainError("INVALID_PRODUCT", f"가격은 1~{MAX_PRICE:,}원이어야 합니다: {price}")
+    if stock is not None and not 0 <= stock <= MAX_STOCK:
+        raise DomainError("INVALID_PRODUCT", f"재고는 0~{MAX_STOCK:,}개여야 합니다: {stock}")
+    if max_per_order is not None and not 1 <= max_per_order <= MAX_QUANTITY:
+        raise DomainError("INVALID_PRODUCT", f"1회 구매 제한은 1~{MAX_QUANTITY}개여야 합니다: {max_per_order}")
+
+
+def register_product(
+    conn: sqlite3.Connection,
+    name: str,
+    price: int,
+    stock: int,
+    max_per_order: int | None = None,
+    is_active: bool = True,
+) -> dict:
+    """판매자 상품 등록 (R16)."""
+    _validate_product_fields(name, price, stock, max_per_order)
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO products (name, price, stock, max_per_order, is_active) VALUES (?, ?, ?, ?, ?)",
+            (name.strip(), price, stock, max_per_order, int(is_active)),
+        )
+    return get_product(conn, cur.lastrowid)
+
+
+def update_product(conn: sqlite3.Connection, product_id: int, changes: dict) -> dict:
+    """판매자 상품 수정 (R16). changes 에 들어온 항목만 바꾼다. max_per_order=None 은 구매 제한 해제.
+
+    가격을 바꿔도 이미 들어온 주문 금액은 그대로다 (주문 상품에 주문 당시 가격을 따로 저장하므로).
+    """
+    get_product(conn, product_id)
+    allowed = {"name", "price", "stock", "max_per_order", "is_active"}
+    unknown = set(changes) - allowed
+    if unknown:
+        raise DomainError("INVALID_PRODUCT", f"수정할 수 없는 항목입니다: {', '.join(sorted(unknown))}")
+    _validate_product_fields(changes.get("name"), changes.get("price"), changes.get("stock"), changes.get("max_per_order"))
+    if not changes:
+        return get_product(conn, product_id)
+    if "name" in changes:
+        changes["name"] = changes["name"].strip()
+    if "is_active" in changes:
+        changes["is_active"] = int(changes["is_active"])
+    columns = ", ".join(f"{column} = ?" for column in changes)
+    with conn:
+        conn.execute(f"UPDATE products SET {columns} WHERE id = ?", (*changes.values(), product_id))
+    return get_product(conn, product_id)
+
+
 def _check_orderable(product: dict, quantity: int) -> None:
     """상품을 quantity 개 주문/담기 할 수 있는지 검사한다 (R1~R5).
 
