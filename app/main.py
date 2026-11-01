@@ -8,7 +8,7 @@ from app.services import DomainError
 
 
 def create_app(db_path: str | None = None) -> FastAPI:
-    app = FastAPI(title="Delivery QA Toolkit", version="0.1.0")
+    app = FastAPI(title="Commerce QA Toolkit", version="0.1.0")
     app.state.db_path = db_path or get_db_path()
 
     conn = connect(app.state.db_path)

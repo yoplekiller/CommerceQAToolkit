@@ -2,20 +2,13 @@ import os
 import sqlite3
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS stores (
+CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    min_order_amount INTEGER NOT NULL,
-    delivery_fee INTEGER NOT NULL,
-    is_open INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE TABLE IF NOT EXISTS menus (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    store_id INTEGER NOT NULL REFERENCES stores(id),
     name TEXT NOT NULL,
     price INTEGER NOT NULL,
-    sold_out INTEGER NOT NULL DEFAULT 0
+    stock INTEGER NOT NULL CHECK (stock >= 0),
+    max_per_order INTEGER,
+    is_active INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -38,13 +31,20 @@ CREATE TABLE IF NOT EXISTS coupons (
     used_order_id INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS cart_items (
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL,
+    added_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, product_id)
+);
+
 CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
-    store_id INTEGER NOT NULL REFERENCES stores(id),
     status TEXT NOT NULL,
     items_amount INTEGER NOT NULL,
-    delivery_fee INTEGER NOT NULL,
+    shipping_fee INTEGER NOT NULL,
     discount_amount INTEGER NOT NULL,
     total_amount INTEGER NOT NULL,
     coupon_id INTEGER REFERENCES coupons(id),
@@ -56,8 +56,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS order_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL REFERENCES orders(id),
-    menu_id INTEGER NOT NULL REFERENCES menus(id),
-    menu_name TEXT NOT NULL,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    product_name TEXT NOT NULL,
     unit_price INTEGER NOT NULL,
     quantity INTEGER NOT NULL
 );
@@ -73,11 +73,11 @@ CREATE TABLE IF NOT EXISTS order_status_history (
 """
 
 # 외래키 순서상 자식 테이블부터 지운다
-TABLES = ["order_status_history", "order_items", "orders", "coupons", "users", "menus", "stores"]
+TABLES = ["order_status_history", "order_items", "orders", "cart_items", "coupons", "users", "products"]
 
 
 def get_db_path() -> str:
-    return os.getenv("DB_PATH", "delivery.db")
+    return os.getenv("DB_PATH", "commerce.db")
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:

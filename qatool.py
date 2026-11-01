@@ -2,7 +2,7 @@
 
     python qatool.py seed
     python qatool.py orders gen --count 5 --scenario coupon_fixed --status DELIVERED
-    python qatool.py orders advance 3 --to DELIVERING
+    python qatool.py orders advance 3 --to RETURNED
 """
 import json
 import os
@@ -14,8 +14,8 @@ import requests
 
 BASE_URL = os.getenv("QA_BASE_URL", "http://127.0.0.1:8000")
 QA_TOKEN = os.getenv("QA_TOKEN", "local-qa-token")
-STATUSES = ["PENDING", "ACCEPTED", "COOKING", "DELIVERING", "DELIVERED", "CANCELED"]
-SCENARIOS = ["basic", "multi_item", "coupon_fixed", "coupon_percent"]
+STATUSES = ["PAID", "PREPARING", "SHIPPING", "DELIVERED", "CONFIRMED", "CANCELED", "RETURN_REQUESTED", "RETURNED"]
+SCENARIOS = ["basic", "multi_item", "coupon_fixed", "coupon_percent", "free_shipping", "paid_shipping"]
 
 
 def call(method: str, path: str, body: dict | None = None):
@@ -39,28 +39,38 @@ def rjust(text: str, width: int) -> str:
 
 
 def print_orders(orders: list[dict]) -> None:
-    headers = [("ID", 4), ("상태", 12), ("가게", 6), ("메뉴합계", 10), ("배달비", 8), ("할인", 8), ("결제금액", 10)]
-    click.echo("".join(rjust(h, w) for h, w in headers) + "  메뉴")
+    headers = [("ID", 4), ("상태", 18), ("상품합계", 10), ("배송비", 8), ("할인", 8), ("결제금액", 10)]
+    click.echo("".join(rjust(h, w) for h, w in headers) + "  상품")
     for o in orders:
-        menus = ", ".join(f"{i['menu_name']}x{i['quantity']}" for i in o["items"])
+        products = ", ".join(f"{i['product_name']}({i['quantity']}개)" for i in o["items"])
         click.echo(
-            f"{o['id']:>4}{o['status']:>12}{o['store_id']:>6}{o['items_amount']:>10,}"
-            f"{o['delivery_fee']:>8,}{o['discount_amount']:>8,}{o['total_amount']:>10,}  {menus}"
+            f"{o['id']:>4}{o['status']:>18}{o['items_amount']:>10,}"
+            f"{o['shipping_fee']:>8,}{o['discount_amount']:>8,}{o['total_amount']:>10,}  {products}"
         )
+
+
+def print_products(products: list[dict]) -> None:
+    for p in products:
+        tags = []
+        if not p["is_active"]:
+            tags.append("판매중지")
+        if p["stock"] == 0:
+            tags.append("품절")
+        if p["max_per_order"] is not None:
+            tags.append(f"1회 {p['max_per_order']}개 제한")
+        suffix = f" [{', '.join(tags)}]" if tags else ""
+        click.echo(f"#{p['id']} {p['name']} {p['price']:,}원 (재고 {p['stock']}){suffix}")
 
 
 @click.group()
 def cli():
-    """배달 주문 QA 도구"""
+    """커머스 QA 도구"""
 
 
 @cli.command()
 def seed():
-    """전체 초기화 후 기본 가게/메뉴 생성"""
-    data = call("POST", "/qa/seed")
-    for s in data["stores"]:
-        state = "영업중" if s["is_open"] else "영업종료"
-        click.echo(f"#{s['id']} {s['name']} (최소주문 {s['min_order_amount']:,}원, 배달비 {s['delivery_fee']:,}원, {state})")
+    """전체 초기화 후 기본 상품 생성"""
+    print_products(call("POST", "/qa/seed")["products"])
 
 
 @cli.command()
@@ -96,6 +106,24 @@ def coupon(user_id, discount_type, value, min_order_amount, max_discount, expire
     click.echo(f"#{c['id']} {c['code']} {c['discount_type']} {c['value']} (만료 {c['expires_at']})")
 
 
+@cli.command()
+@click.argument("product_id", type=int)
+@click.argument("stock", type=int)
+def stock(product_id, stock):
+    """상품 재고 설정 (0 이면 품절)"""
+    print_products([call("PUT", f"/qa/products/{product_id}/stock", {"stock": stock})])
+
+
+@cli.command()
+@click.option("--user", "user_id", type=int, required=True)
+@click.option("--count", default=3, show_default=True, help="담을 상품 종류 수")
+@click.option("--seed", "seed_value", type=int, default=None)
+def cart(user_id, count, seed_value):
+    """장바구니 자동 담기"""
+    for c in call("POST", "/qa/carts/fill", {"user_id": user_id, "count": count, "seed": seed_value}):
+        click.echo(f"{c['product_name']} {c['unit_price']:,}원 ({c['quantity']}개)")
+
+
 @cli.group()
 def orders():
     """주문 도구"""
@@ -104,16 +132,15 @@ def orders():
 @orders.command("gen")
 @click.option("--count", default=1, show_default=True)
 @click.option("--scenario", type=click.Choice(SCENARIOS), default="basic", show_default=True)
-@click.option("--status", "target_status", type=click.Choice(STATUSES), default="PENDING", show_default=True)
+@click.option("--status", "target_status", type=click.Choice(STATUSES), default="PAID", show_default=True)
 @click.option("--user", "user_id", type=int, default=None, help="생략하면 테스트 계정을 새로 만든다")
-@click.option("--store", "store_id", type=int, default=None, help="생략하면 영업중인 가게에서 무작위")
 @click.option("--seed", "seed_value", type=int, default=None, help="같은 값이면 같은 주문 데이터 재현")
 @click.option("--json", "as_json", is_flag=True, help="JSON 으로 출력")
-def orders_gen(count, scenario, target_status, user_id, store_id, seed_value, as_json):
+def orders_gen(count, scenario, target_status, user_id, seed_value, as_json):
     """주문 자동생성 (+ 목표 상태까지 자동 진행)"""
     data = call("POST", "/qa/orders/generate", {
         "count": count, "scenario": scenario, "target_status": target_status,
-        "user_id": user_id, "store_id": store_id, "seed": seed_value,
+        "user_id": user_id, "seed": seed_value,
     })
     if as_json:
         click.echo(json.dumps(data, ensure_ascii=False, indent=2))
@@ -125,7 +152,7 @@ def orders_gen(count, scenario, target_status, user_id, store_id, seed_value, as
 @click.argument("order_id", type=int)
 @click.option("--to", "target_status", type=click.Choice(STATUSES), required=True)
 def orders_advance(order_id, target_status):
-    """주문 상태 자동완료 (정상 전이를 한 단계씩 진행)"""
+    """주문 상태 자동완료 (허용된 전이를 한 단계씩 진행)"""
     order = call("POST", f"/qa/orders/{order_id}/advance", {"target_status": target_status})
     print_orders([order])
     click.echo("이력: " + " -> ".join(h["to_status"] for h in order["history"]))
@@ -138,7 +165,7 @@ def orders_show(order_id):
     order = call("GET", f"/orders/{order_id}")
     print_orders([order])
     for h in order["history"]:
-        click.echo(f"  {h['changed_at']}  {h['from_status'] or '-':<10} -> {h['to_status']:<10} ({h['actor']})")
+        click.echo(f"  {h['changed_at']}  {h['from_status'] or '-':<16} -> {h['to_status']:<16} ({h['actor']})")
 
 
 if __name__ == "__main__":

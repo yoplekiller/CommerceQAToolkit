@@ -2,7 +2,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-Status = Literal["PENDING", "ACCEPTED", "COOKING", "DELIVERING", "DELIVERED", "CANCELED"]
+Status = Literal[
+    "PAID", "PREPARING", "SHIPPING", "DELIVERED", "CONFIRMED", "CANCELED", "RETURN_REQUESTED", "RETURNED",
+]
 
 
 class UserCreate(BaseModel):
@@ -10,26 +12,35 @@ class UserCreate(BaseModel):
     name: str
 
 
-class OrderItemIn(BaseModel):
-    menu_id: int
+class CartAdd(BaseModel):
+    product_id: int
     # 수량 범위는 도메인 규칙(INVALID_QUANTITY)으로 검사해서 에러 코드를 통일한다
+    quantity: int = 1
+
+
+class OrderItemIn(BaseModel):
+    product_id: int
     quantity: int
 
 
 class OrderCreate(BaseModel):
     user_id: int
-    store_id: int
     items: list[OrderItemIn]
+    coupon_id: int | None = None
+
+
+class CheckoutIn(BaseModel):
+    user_id: int
     coupon_id: int | None = None
 
 
 class StatusChange(BaseModel):
     status: str
-    actor: Literal["store", "rider"] = "store"
+    actor: Literal["seller", "carrier"] = "seller"
     reason: str | None = None
 
 
-class CancelRequest(BaseModel):
+class ReasonIn(BaseModel):
     reason: str | None = None
 
 
@@ -50,12 +61,23 @@ class CouponIssueIn(BaseModel):
     expires_in_days: int = 30
 
 
+class StockSet(BaseModel):
+    stock: int
+
+
+class CartFillIn(BaseModel):
+    user_id: int
+    count: int = Field(3, ge=1, le=20)
+    seed: int | None = None
+
+
 class OrderGenerateIn(BaseModel):
     count: int = Field(1, ge=1, le=100)
-    scenario: Literal["basic", "multi_item", "coupon_fixed", "coupon_percent"] = "basic"
-    target_status: Status = "PENDING"
+    scenario: Literal[
+        "basic", "multi_item", "coupon_fixed", "coupon_percent", "free_shipping", "paid_shipping",
+    ] = "basic"
+    target_status: Status = "PAID"
     user_id: int | None = None
-    store_id: int | None = None
     seed: int | None = None
 
 

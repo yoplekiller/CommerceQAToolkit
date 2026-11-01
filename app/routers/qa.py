@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app import qa_tools, services
 from app.deps import get_conn
-from app.schemas import AdvanceIn, BulkUsersIn, CouponIssueIn, OrderGenerateIn
+from app.schemas import AdvanceIn, BulkUsersIn, CartFillIn, CouponIssueIn, OrderGenerateIn, StockSet
 
 
 def require_qa_access(x_qa_token: str | None = Header(default=None)):
@@ -42,12 +42,19 @@ def issue_coupon(body: CouponIssueIn, conn=Depends(get_conn)):
     )
 
 
+@router.put("/products/{product_id}/stock")
+def set_stock(product_id: int, body: StockSet, conn=Depends(get_conn)):
+    return qa_tools.set_stock(conn, product_id, body.stock)
+
+
+@router.post("/carts/fill")
+def fill_cart(body: CartFillIn, conn=Depends(get_conn)):
+    return qa_tools.fill_cart(conn, body.user_id, body.count, body.seed)
+
+
 @router.post("/orders/generate", status_code=201)
 def generate_orders(body: OrderGenerateIn, conn=Depends(get_conn)):
-    return qa_tools.generate_orders(
-        conn, body.count, body.scenario, body.target_status,
-        body.user_id, body.store_id, body.seed,
-    )
+    return qa_tools.generate_orders(conn, body.count, body.scenario, body.target_status, body.user_id, body.seed)
 
 
 @router.post("/orders/{order_id}/advance")
