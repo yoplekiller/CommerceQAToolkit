@@ -3,6 +3,10 @@
     python qatool.py seed
     python qatool.py orders gen --count 5 --scenario coupon_fixed --status DELIVERED
     python qatool.py orders advance 3 --to RETURNED
+
+외부 서비스(설정 파일만 채워서 연결, 서버 없이 바로 대상 API 호출):
+    python qatool.py target check  targets/my-shop.yaml
+    python qatool.py target orders targets/my-shop.yaml --count 3 --status DELIVERED
 """
 import json
 import os
@@ -169,6 +173,110 @@ def orders_show(order_id):
     print_orders([order])
     for h in order["history"]:
         click.echo(f"  {h['changed_at']}  {h['from_status'] or '-':<16} -> {h['to_status']:<16} ({h['actor']})")
+
+
+# ---------- 외부 서비스 (targets/*.yaml) ----------
+
+STATUS_LABEL = {
+    "PAID": "결제완료", "PREPARING": "상품준비중", "SHIPPING": "배송중", "DELIVERED": "배송완료",
+    "CONFIRMED": "구매확정", "CANCELED": "주문취소", "RETURN_REQUESTED": "반품요청", "RETURNED": "반품완료",
+}
+
+
+def open_target(config_path: str):
+    """설정을 읽어 어댑터를 만든다. 빈칸 · 필수 항목 문제가 있으면 목록을 보여주고 종료."""
+    from qa_target.adapter import HttpAdapter
+    from qa_target.config import ConfigError, load_config, validate
+    try:
+        config = load_config(config_path)
+    except ConfigError as e:
+        click.secho(f"[설정 오류] {e}", fg="red")
+        sys.exit(1)
+    problems = validate(config)
+    if problems:
+        click.secho("설정을 먼저 채워주세요:", fg="red")
+        for p in problems:
+            click.echo(f"  - {p}")
+        sys.exit(1)
+    return HttpAdapter(config)
+
+
+def run_target(fn):
+    """대상 서비스 호출 중 생긴 오류를 사람이 읽을 메시지로 바꿔 출력한다."""
+    from qa_target.adapter import TargetError
+    from qa_target.config import ConfigError
+    from qa_target.engine import ScenarioError
+    try:
+        return fn()
+    except (TargetError, ConfigError, ScenarioError) as e:
+        click.secho(f"[{type(e).__name__}] {e}", fg="red")
+        sys.exit(1)
+
+
+def print_target_orders(orders: list[dict]) -> None:
+    for o in orders:
+        total = f"{o['total']:,}원" if isinstance(o.get("total"), (int, float)) else "-"
+        click.echo(f"  #{o['id']}  {STATUS_LABEL[o['status']]} (대상 상태값 {o['target_status']})  결제 {total}")
+
+
+@cli.group()
+def target():
+    """외부 서비스에 연결해 쓰기 (설정 파일: targets/template.yaml 참고)"""
+
+
+@target.command("check")
+@click.argument("config_path")
+def target_check(config_path):
+    """설정 점검: 빈칸 · 필수 항목 · 연결 · 필드 매핑 (읽기 요청만 보냄)"""
+    from qa_target.check import run_check
+    from qa_target.config import ConfigError, load_config
+    try:
+        config = load_config(config_path)
+    except ConfigError as e:
+        click.secho(f"[설정 오류] {e}", fg="red")
+        sys.exit(1)
+    results = run_check(config)
+    for ok, message in results:
+        click.secho(f"  {'✅' if ok else '❌'} {message}", fg=None if ok else "red")
+    sys.exit(0 if all(ok for ok, _ in results) else 1)
+
+
+@target.command("orders")
+@click.argument("config_path")
+@click.option("--count", default=1, show_default=True)
+@click.option("--scenario", type=click.Choice(SCENARIOS), default="basic", show_default=True)
+@click.option("--status", "target_status", type=click.Choice(STATUSES), default="PAID", show_default=True)
+@click.option("--user", "user_id", default=None, help="대상 서비스 회원 ID (없으면 create_user 로 생성)")
+@click.option("--seed", "seed_value", type=int, default=None)
+def target_orders(config_path, count, scenario, target_status, user_id, seed_value):
+    """외부 서비스에 주문 자동생성 + 목표 상태까지 진행"""
+    from qa_target import engine
+    adapter = open_target(config_path)
+    orders = run_target(lambda: engine.generate_orders(adapter, count, scenario, target_status, user_id, seed_value))
+    click.echo(f"{adapter.config.get('name', '')}: 주문 {len(orders)}건 ({scenario} → {STATUS_LABEL[target_status]})")
+    print_target_orders(orders)
+
+
+@target.command("advance")
+@click.argument("config_path")
+@click.argument("order_id")
+@click.option("--to", "target_status", type=click.Choice(STATUSES), required=True)
+def target_advance(config_path, order_id, target_status):
+    """외부 서비스 주문을 목표 상태까지 정상 단계로 진행"""
+    from qa_target import engine
+    adapter = open_target(config_path)
+    print_target_orders([run_target(lambda: engine.advance(adapter, order_id, target_status))])
+
+
+@target.command("stock")
+@click.argument("config_path")
+@click.argument("product_id")
+@click.argument("stock", type=int)
+def target_stock(config_path, product_id, stock):
+    """외부 서비스 상품 재고 설정 (endpoints.set_stock 필요)"""
+    adapter = open_target(config_path)
+    run_target(lambda: adapter.set_stock(product_id, stock))
+    click.echo(f"상품 {product_id} 재고 → {stock}")
 
 
 if __name__ == "__main__":

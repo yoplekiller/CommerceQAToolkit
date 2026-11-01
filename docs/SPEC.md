@@ -12,6 +12,7 @@
 | 쇼핑몰 화면 (`/shop`) | 고객: 간이 로그인, 상품 담기/바로구매, 쿠폰 선택, 결제, 주문내역(취소·반품·구매확정) | Claude |
 | 판매자 어드민 화면 (`/admin`) | 판매자·택배사: 상태 탭, 주문 확인·발송·배송완료·반품 승인·판매자 취소, 일괄 처리, 상품 등록 · 가격/재고/구매 제한 수정 · 판매중지 | Claude |
 | QA 도구 화면 (`/`) | 테스터: 위 두 화면 테스트용 데이터 준비 | Claude |
+| 외부 서비스 연결 (`qa_target/`, `targets/*.yaml`, `qatool target`) | 설정 파일 빈칸(주소 · 인증 · 엔드포인트 · 상태값 · 필드)만 채워 다른 서비스에 주문 자동생성 · 상태 자동완료 적용 | Claude |
 | Slack `/qa` (`POST /slack/commands`) | 테스터: QA 도구 기능(주문 생성 · 상태 이동 · 조회 · 재고 · 계정 · 쿠폰 · 초기화)을 Slack 에서 실행 | Claude |
 | 자동화 테스트 (pytest API / Playwright E2E) | 위 서비스와 화면을 검증. 사전조건은 QA 도구로 준비 | Claude (변경 기록은 docs/changes/) |
 
@@ -149,3 +150,4 @@ QA 도구 API는 `X-QA-Token` 헤더가 맞아야 동작하고, `QA_TOOLS_ENABLE
 3. **테스트 스위트 (완료)**: pytest API 테스트(R1~R15 전부) + Playwright 웹 화면 E2E, 사전조건은 QA 도구로 준비
 4. **v3 (완료)**: 쇼핑몰(`/shop`) · 판매자 어드민(`/admin`) 화면 + 주문서 계산 API
 5. **v4 (완료)**: Slack 슬래시 커맨드 `/qa` — QA 도구 기능을 Slack 에서 실행 (`POST /slack/commands`, 서명 검증)
+6. **v5 (완료)**: 외부 서비스 연결 (설정 파일 기반 HTTP 어댑터 + 점검 명령)

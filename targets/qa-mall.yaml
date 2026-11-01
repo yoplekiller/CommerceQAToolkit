@@ -1,0 +1,58 @@
+# 이 레포의 데모 쇼핑몰(QA Mall)을 "외부 서비스"로 보고 설정 파일만으로 연결한 예시.
+# QA 도구 내부 함수를 쓰지 않고, 고객 · 판매자 · 택배사가 쓰는 공개 API 만 호출한다.
+#   python qatool.py target check  targets/qa-mall.yaml
+#   python qatool.py target orders targets/qa-mall.yaml --count 3 --scenario coupon_percent --status DELIVERED
+
+name: QA Mall (데모)
+environment: staging
+base_url: ${TARGET_BASE_URL:-http://127.0.0.1:8000}
+
+auth:
+  headers:
+    X-QA-Token: ${QA_TOKEN:-local-qa-token}     # 쿠폰 발급 · 재고 조정에만 필요 (QA Mall 은 쿠폰 발급 API 가 /qa 아래)
+
+statuses:
+  PAID: PAID
+  PREPARING: PREPARING
+  SHIPPING: SHIPPING
+  DELIVERED: DELIVERED
+  CONFIRMED: CONFIRMED
+  CANCELED: CANCELED
+  RETURN_REQUESTED: RETURN_REQUESTED
+  RETURNED: RETURNED
+
+rules:
+  free_shipping_threshold: 19800
+  max_quantity: 99
+
+fields:
+  product: {id: id, name: name, price: price, stock: stock, max_per_order: max_per_order, active: is_active}
+  order: {id: id, status: status, total: total_amount}
+  user: {id: id}
+  coupon: {id: id}
+
+endpoints:
+  list_products: {method: GET, path: /products}
+  create_order:
+    method: POST
+    path: /orders
+    body: {user_id: "{user_id}", items: "{items}", coupon_id: "{coupon_id}"}
+  get_order: {method: GET, path: "/orders/{order_id}"}
+  change_status:
+    "*": {method: POST, path: "/orders/{order_id}/status", body: {status: "{status}", actor: seller}}
+    DELIVERED: {method: POST, path: "/orders/{order_id}/status", body: {status: "{status}", actor: carrier}}
+    CONFIRMED: {method: POST, path: "/orders/{order_id}/confirm"}
+    RETURN_REQUESTED: {method: POST, path: "/orders/{order_id}/return", body: {reason: QA 도구 반품 요청}}
+
+  create_user:
+    method: POST
+    path: /users
+    body: {email: "{email}", name: "{name}"}
+  issue_coupon:
+    method: POST
+    path: /qa/coupons/issue
+    body: {user_id: "{user_id}", discount_type: "{discount_type}", value: "{value}", max_discount: "{max_discount}", expires_in_days: "{expires_in_days}"}
+  set_stock:
+    method: PUT
+    path: "/qa/products/{product_id}/stock"
+    body: {stock: "{stock}"}

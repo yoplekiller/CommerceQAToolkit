@@ -78,6 +78,45 @@ QA 도구를 Slack 에서 바로 쓴다. 데이터를 바꾼 결과는 채널에
 
 > 무료 Render 는 잠들어 있으면 깨어나는 데 30초쯤 걸리는데 Slack 은 3초 안에 응답을 받아야 한다. 잠든 상태에서 첫 명령은 `dispatch_failed` 가 날 수 있으니, 데모 주소를 한 번 열어 깨운 뒤 쓰면 된다.
 
+## 실제 서비스에 연결하기 (설정 파일만 채우기)
+
+QA 도구(주문 자동생성 · 상태 자동완료 · 재고)를 **이 레포의 데모 쇼핑몰이 아닌 다른 서비스**에 붙일 수 있다. 코드는 그대로 두고 **설정 파일의 빈칸만** 채운다.
+
+```bash
+cp targets/template.yaml targets/my-shop.yaml     # TODO 칸 채우기 (API 주소 · 인증 · 엔드포인트 · 상태값 · 응답 필드)
+export MY_SHOP_TOKEN=...                           # 비밀값은 설정 파일에 ${MY_SHOP_TOKEN} 으로
+
+python qatool.py target check  targets/my-shop.yaml      # 빈칸 · 연결 · 필드 매핑 점검 (읽기 요청만)
+python qatool.py target orders targets/my-shop.yaml --count 3 --scenario free_shipping --status DELIVERED
+python qatool.py target advance targets/my-shop.yaml O-0012 --to CONFIRMED
+```
+
+```
+$ python qatool.py target check targets/qa-mall.yaml
+  ✅ 설정 형식 OK · 대상 QA Mall (데모) (staging) http://127.0.0.1:8000
+  ✅ 연결 OK · 상품 8개 조회, 필드 매핑(id/price/stock) 확인
+  ✅ 주문 가능한 상품 6개
+  ✅ 쿠폰 주문 (coupon_fixed / coupon_percent): 사용 가능
+  ...
+$ python qatool.py target check targets/template.yaml
+  ❌ 아직 안 채운 칸: base_url
+  ❌ 아직 안 채운 칸: statuses.PAID
+  ...
+```
+
+| 채우는 칸 | 예 |
+|---|---|
+| `base_url`, `environment` | 스테이징 API 주소. `production` 이면 실행 거부 |
+| `auth.headers` | `Authorization: Bearer ${TOKEN}` |
+| `statuses` | 표준 상태 → 그 서비스 상태값 (`PAID: ORDER_COMPLETE`) |
+| `transitions` | 주문 흐름이 다르면 수정 (반품이 없는 서비스 등) |
+| `fields` | 응답 필드 이름 매핑, 중첩 가능 (`price: salePrice.amount`) |
+| `endpoints` | 필수: 상품 조회 · 주문 생성 · 주문 조회 · 상태 변경(상태별 URL 가능) / 선택: 회원 생성 · 쿠폰 발급 · 재고 조정 |
+
+- 예시 2개: [`targets/qa-mall.yaml`](targets/qa-mall.yaml)(이 레포 데모를 **공개 API 만으로** 연결 — 이력에 customer/seller/carrier 로 남음), `tests/test_target_adapter.py` 의 **경로 · 응답 구조 · 상태값 · ID 형식이 전혀 다른 가짜 쇼핑몰**
+- 선택 엔드포인트가 없으면 그 기능만 꺼지고, 무엇이 없어서 안 되는지 알려준다 (예: 쿠폰 API 없음 → 쿠폰 시나리오 불가)
+- 구조: `qa_target/config.py`(설정 · 빈칸 · 운영 차단) → `adapter.py`(설정대로 HTTP 호출 · 응답 변환) → `engine.py`(서비스와 무관한 주문 생성 · 상태 진행 로직, 내장 QA 도구도 같은 상품 선택 함수 사용)
+
 ## 실행
 
 ```bash
@@ -133,7 +172,7 @@ $ python qatool.py orders advance 1 --to RETURNED
 pip install -r requirements-dev.txt
 python -m playwright install chromium
 
-pytest                 # 전체 213건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
+pytest                 # 전체 229건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
 pytest -m "not e2e"    # 브라우저 없이 API + QA 도구만
 pytest -m e2e          # 웹 화면 E2E 만
 pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
@@ -144,6 +183,7 @@ pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 | `tests/api/` | 서비스 API: 도메인 규칙 R1~R16(상품 등록/수정 경계값 포함), 경계값(무료배송 19,799/19,800, 수량 0/1/99/100, 구매제한, 쿠폰 최소주문·최대할인), 상태 전이 전체, 주문서 계산·로그인·주문내역·어드민 목록, 상품 수정이 기존 주문에 영향 없음 | 132 |
 | `tests/e2e/` | 웹 화면 (Playwright, `data-testid` 로케이터). QA 도구: 주문 생성, 상태 이동·이력, 이동 가능 상태만 노출, 품절, 에러 토스트, 초기화 2단계 / 쇼핑몰·어드민: 비로그인 차단, 품절 버튼 비활성, 무료배송 경계 안내, 구매제한 에러, 쿠폰 적용, 결제 후 장바구니 비움, 배송 전만 취소, 상태 탭 건수·필터, 일괄 처리 부분 실패, **고객↔판매자 탭을 오가는 주문→발송→배송완료→반품→승인→재고 복구 전체 흐름**, 어드민 상품 등록→쇼핑몰 노출, 잘못된 상품 에러, 재고 0·판매중지가 쇼핑몰 버튼에 반영 | 20 |
 | `tests/test_qa_tools.py` | QA 도구 자체 검증 | 23 |
+| `tests/test_target_adapter.py` | 외부 서비스 연결: 템플릿 빈칸 감지, 운영 환경 거부, 환경변수 치환, 본문 템플릿, 데모 쇼핑몰을 설정만으로 연결(주문 → 배송완료 · 반품 → 재고 복구 · 서비스 에러 전달 · 잘못된 필드 매핑 감지), **모양이 다른 가짜 쇼핑몰**(중첩 필드 · 판매중지 제외 · 반품/쿠폰 미지원 안내 · 토큰 오류) | 16 |
 | `tests/test_slack_bot.py` | Slack `/qa`: 명령어 해석(한국어 별칭 · 건수 경계값 · 잘못된 입력), 서명 검증(변조 · 다른 시크릿 · 5분 경계), 엔드포인트 실행(주문 생성 · 상품 등록 · 이력 주체 slack · 규칙 위반은 비공개 · 초기화 확인) | 37 |
 
 - 사전조건(계정·쿠폰·재고·특정 상태 주문)은 전부 **QA 도구(`/qa/*`)로 준비**하고, 테스트 본문엔 검증 대상 호출과 assert 만 둔다.
@@ -157,3 +197,4 @@ pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 - [x] v2: QA 도구 웹 화면 + Render 배포 설정
 - [x] v3: 쇼핑몰(`/shop`) + 판매자 어드민(`/admin`) 화면, 주문서 계산 API
 - [x] v4: Slack 슬래시 커맨드 `/qa` (서명 검증, 매니페스트로 앱 생성)
+- [x] v5: 외부 서비스 연결 — 설정 파일(`targets/*.yaml`) 빈칸만 채우면 다른 서비스에 QA 도구 적용

@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 
 from app import services
+from qa_target import engine
 from app.db import reset_all
 from app.services import FREE_SHIPPING_THRESHOLD, DomainError
 
@@ -22,7 +23,7 @@ SEED_PRODUCTS = [
     ("볼펜", 1000, 1000, None, True),
 ]
 
-SCENARIOS = ("basic", "multi_item", "coupon_fixed", "coupon_percent", "free_shipping", "paid_shipping")
+SCENARIOS = engine.SCENARIOS
 
 
 def reset(conn: sqlite3.Connection) -> None:
@@ -84,37 +85,12 @@ def _orderable_products(conn: sqlite3.Connection) -> list[dict]:
     return [p for p in services.list_products(conn) if p["is_active"] and p["stock"] > 0]
 
 
-def _max_quantity(product: dict) -> int:
-    """이 상품을 한 주문에 최대 몇 개 담을 수 있는지 (재고, 수량 상한 99, 1회 구매 제한 중 가장 작은 값)."""
-    limits = [product["stock"], services.MAX_QUANTITY]
-    if product["max_per_order"] is not None:
-        limits.append(product["max_per_order"])
-    return min(limits)
-
-
 def _pick_items(rng: random.Random, products: list[dict], scenario: str) -> list[dict]:
-    """시나리오에 맞게 주문할 상품과 수량을 고른다. 재고와 구매 제한을 넘지 않는다."""
-    if scenario == "paid_shipping":
-        cheap = [p for p in products if p["price"] < FREE_SHIPPING_THRESHOLD]
-        if not cheap:
-            raise DomainError("SCENARIO_NOT_APPLICABLE", "무료배송 기준보다 싼 주문 가능 상품이 없습니다.", 409)
-        return [{"product_id": rng.choice(cheap)["id"], "quantity": 1}]
-
-    kinds = 2 if scenario == "multi_item" else 1
-    if len(products) < kinds:
-        raise DomainError("SCENARIO_NOT_APPLICABLE", f"주문 가능한 상품이 {kinds}종 미만입니다.", 409)
-    chosen = rng.sample(products, k=kinds)
-    quantities = {p["id"]: 1 for p in chosen}
-
-    if scenario == "free_shipping":
-        # 무료배송 기준을 넘을 때까지 수량을 늘린다 (재고/구매제한 안에서)
-        by_id = {p["id"]: p for p in chosen}
-        while sum(by_id[pid]["price"] * q for pid, q in quantities.items()) < FREE_SHIPPING_THRESHOLD:
-            growable = [pid for pid, q in quantities.items() if q < _max_quantity(by_id[pid])]
-            if not growable:
-                raise DomainError("SCENARIO_NOT_APPLICABLE", "재고 안에서 무료배송 기준을 채울 수 없습니다.", 409)
-            quantities[rng.choice(growable)] += 1
-    return [{"product_id": pid, "quantity": q} for pid, q in quantities.items()]
+    """시나리오에 맞게 주문할 상품과 수량을 고른다 (외부 서비스용 엔진과 같은 함수를 쓴다)."""
+    try:
+        return engine.pick_items(rng, products, scenario, FREE_SHIPPING_THRESHOLD, services.MAX_QUANTITY)
+    except engine.ScenarioError as e:
+        raise DomainError("SCENARIO_NOT_APPLICABLE", str(e), 409) from None
 
 
 def fill_cart(conn: sqlite3.Connection, user_id: int, count: int, seed_value: int | None = None) -> list[dict]:

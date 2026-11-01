@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 대상 서비스 연결 설정 템플릿
+#
+#   1) 이 파일을 복사: targets/my-shop.yaml
+#   2) "TODO" 칸만 채운다 (비밀값은 ${환경변수} 로)
+#   3) 점검:  python qatool.py target check targets/my-shop.yaml   ← 빈칸 · 연결 · 필드 매핑 확인 (읽기만 함)
+#   4) 사용:  python qatool.py target orders targets/my-shop.yaml --count 3 --status DELIVERED
+#
+# 값 규칙
+#   - 요청 본문에서 "{name}" 은 값으로 바뀜. 값 전체가 "{name}" 이면 숫자/목록 타입 그대로 들어감
+#   - 값이 null 이 되는 키는 본문에서 빠짐 (예: 쿠폰 없이 주문할 때 coupon_id)
+#   - response_path: 응답이 {"data": {...}} 처럼 감싸져 있으면 "data" 처럼 꺼낼 위치
+#   - fields: 대상 응답의 필드 이름 → 표준 필드 (점 경로 가능: "price.sale")
+#   - path 에 {order_id} 같은 자리표시자가 있으면 따옴표로 감싸기 (YAML 문법)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: TODO 서비스 이름
+environment: TODO staging      # production/prod/live 는 실행 거부 (QA 도구는 운영에 쓰지 않음)
+base_url: TODO https://api-staging.example.com
+timeout_seconds: 10
+
+auth:
+  headers:
+    Authorization: "Bearer ${TODO_API_TOKEN}"     # 토큰은 환경변수로. 필요 없으면 headers 를 {} 로
+
+# 표준 상태 → 대상 서비스 상태값 (대상 서비스가 쓰는 값으로 오른쪽만 바꾸기)
+statuses:
+  PAID: TODO              # 결제완료
+  PREPARING: TODO         # 상품준비중
+  SHIPPING: TODO          # 배송중
+  DELIVERED: TODO         # 배송완료
+  CONFIRMED: TODO         # 구매확정
+  CANCELED: TODO          # 주문취소
+  RETURN_REQUESTED: TODO  # 반품요청
+  RETURNED: TODO          # 반품완료
+
+# 주문 흐름이 아래(기본값)와 다르면 수정. 안 쓰는 상태는 지워도 됨
+# transitions:
+#   PAID: [PREPARING, CANCELED]
+#   PREPARING: [SHIPPING, CANCELED]
+#   SHIPPING: [DELIVERED]
+#   DELIVERED: [CONFIRMED, RETURN_REQUESTED]
+#   RETURN_REQUESTED: [RETURNED]
+#   CONFIRMED: []
+#   CANCELED: []
+#   RETURNED: []
+
+rules:
+  free_shipping_threshold: 0    # 무료배송 기준 금액 (0 이면 배송비 시나리오 사용 안 함)
+  max_quantity: 99              # 상품 1개당 최대 주문 수량
+
+fields:
+  product: {id: TODO, name: TODO, price: TODO, stock: TODO, max_per_order: TODO, active: TODO}
+  order: {id: TODO, status: TODO, total: TODO}
+  user: {id: TODO}
+  coupon: {id: TODO}
+
+endpoints:
+  # ── 필수 ──
+  list_products:
+    method: GET
+    path: TODO /products
+    response_path: ""               # 예: "data.items"
+  create_order:
+    method: POST
+    path: TODO /orders
+    body: {user_id: "{user_id}", items: "{items}", coupon_id: "{coupon_id}"}
+    item: {product_id: "{product_id}", quantity: "{quantity}"}   # items 한 줄 모양
+    response_path: ""
+  get_order:
+    method: GET
+    path: "TODO /orders/{order_id}"
+    response_path: ""
+  change_status:                    # 상태별 엔드포인트. 모두 같으면 "*" 하나만
+    "*": {method: POST, path: "TODO /orders/{order_id}/status", body: {status: "{status}"}}
+    # CONFIRMED: {method: POST, path: "/orders/{order_id}/confirm"}
+    # RETURN_REQUESTED: {method: POST, path: "/orders/{order_id}/return"}
+
+  # ── 선택 (없으면 해당 기능만 꺼짐. 안 쓰면 블록을 지우기) ──
+  create_user:                      # 없으면 주문 생성 시 회원 ID 를 직접 지정
+    method: POST
+    path: TODO /users
+    body: {email: "{email}", name: "{name}"}
+  issue_coupon:                     # 없으면 쿠폰 시나리오 사용 불가
+    method: POST
+    path: TODO /coupons
+    body: {user_id: "{user_id}", type: "{discount_type}", value: "{value}", expires_in_days: "{expires_in_days}"}
+  set_stock:                        # 없으면 재고 조정 사용 불가
+    method: PUT
+    path: "TODO /products/{product_id}/stock"
+    body: {stock: "{stock}"}
