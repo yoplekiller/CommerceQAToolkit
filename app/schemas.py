@@ -8,50 +8,59 @@ Status = Literal[
 
 
 class UserCreate(BaseModel):
+    """회원 가입 요청."""
     email: str
     name: str
 
 
 class CartAdd(BaseModel):
+    """장바구니 담기 요청."""
     product_id: int
     # 수량 범위는 도메인 규칙(INVALID_QUANTITY)으로 검사해서 에러 코드를 통일한다
     quantity: int = 1
 
 
 class OrderItemIn(BaseModel):
+    """주문 상품 1줄."""
     product_id: int
     quantity: int
 
 
 class OrderCreate(BaseModel):
+    """바로 주문 요청."""
     user_id: int
     items: list[OrderItemIn]
     coupon_id: int | None = None
 
 
 class CheckoutIn(BaseModel):
+    """장바구니 주문 요청."""
     user_id: int
     coupon_id: int | None = None
 
 
 class StatusChange(BaseModel):
+    """판매자/택배사 상태 변경 요청."""
     status: str
     actor: Literal["seller", "carrier"] = "seller"
     reason: str | None = None
 
 
 class ReasonIn(BaseModel):
+    """취소/반품 사유 (선택)."""
     reason: str | None = None
 
 
 # ---------- QA 도구 ----------
 
 class BulkUsersIn(BaseModel):
+    """테스트 계정 일괄 생성 요청 (최대 100개)."""
     count: int = Field(1, ge=1, le=100)
     prefix: str = "qa"
 
 
 class CouponIssueIn(BaseModel):
+    """쿠폰 발급 요청."""
     user_id: int
     discount_type: Literal["FIXED", "PERCENT"]
     value: int
@@ -62,16 +71,19 @@ class CouponIssueIn(BaseModel):
 
 
 class StockSet(BaseModel):
+    """재고 설정 요청."""
     stock: int
 
 
 class CartFillIn(BaseModel):
+    """장바구니 자동 담기 요청."""
     user_id: int
     count: int = Field(3, ge=1, le=20)
     seed: int | None = None
 
 
 class OrderGenerateIn(BaseModel):
+    """주문 자동생성 요청."""
     count: int = Field(1, ge=1, le=100)
     scenario: Literal[
         "basic", "multi_item", "coupon_fixed", "coupon_percent", "free_shipping", "paid_shipping",
@@ -82,4 +94,5 @@ class OrderGenerateIn(BaseModel):
 
 
 class AdvanceIn(BaseModel):
+    """주문 상태 자동완료 요청."""
     target_status: Status

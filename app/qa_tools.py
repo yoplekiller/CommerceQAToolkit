@@ -26,6 +26,7 @@ SCENARIOS = ("basic", "multi_item", "coupon_fixed", "coupon_percent", "free_ship
 
 
 def reset(conn: sqlite3.Connection) -> None:
+    """모든 데이터를 지우고 빈 테이블만 남긴다."""
     reset_all(conn)
 
 
@@ -41,6 +42,7 @@ def seed(conn: sqlite3.Connection) -> dict:
 
 
 def bulk_users(conn: sqlite3.Connection, count: int, prefix: str = "qa") -> list[dict]:
+    """테스트 계정을 count 개 만든다. 이메일은 prefix+랜덤@test.local 형식이라 겹치지 않는다."""
     users = []
     for _ in range(count):
         tag = secrets.token_hex(4)
@@ -59,10 +61,12 @@ def set_stock(conn: sqlite3.Connection, product_id: int, stock: int) -> dict:
 
 
 def _orderable_products(conn: sqlite3.Connection) -> list[dict]:
+    """지금 주문할 수 있는 상품 (판매중 + 재고 있음)."""
     return [p for p in services.list_products(conn) if p["is_active"] and p["stock"] > 0]
 
 
 def _max_quantity(product: dict) -> int:
+    """이 상품을 한 주문에 최대 몇 개 담을 수 있는지 (재고, 수량 상한 99, 1회 구매 제한 중 가장 작은 값)."""
     limits = [product["stock"], services.MAX_QUANTITY]
     if product["max_per_order"] is not None:
         limits.append(product["max_per_order"])
@@ -70,6 +74,7 @@ def _max_quantity(product: dict) -> int:
 
 
 def _pick_items(rng: random.Random, products: list[dict], scenario: str) -> list[dict]:
+    """시나리오에 맞게 주문할 상품과 수량을 고른다. 재고와 구매 제한을 넘지 않는다."""
     if scenario == "paid_shipping":
         cheap = [p for p in products if p["price"] < FREE_SHIPPING_THRESHOLD]
         if not cheap:
@@ -112,6 +117,12 @@ def generate_orders(
     user_id: int | None = None,
     seed_value: int | None = None,
 ) -> list[dict]:
+    """주문 자동생성: count 개를 시나리오대로 만들고 target_status 까지 자동 진행한다.
+
+    user_id 를 안 주면 테스트 계정을 하나 만들어 모든 주문에 쓴다.
+    쿠폰 시나리오는 주문마다 새 쿠폰을 발급해서 쓴다.
+    seed_value 가 같으면 같은 상품 조합이 나온다 (같은 시드 데이터 기준).
+    """
     if scenario not in SCENARIOS:
         raise DomainError("INVALID_SCENARIO", f"지원하지 않는 시나리오입니다: {scenario} (가능: {', '.join(SCENARIOS)})")
     if target_status not in services.STATUSES:

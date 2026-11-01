@@ -8,6 +8,7 @@ QA_HEADERS = {"X-QA-Token": "local-qa-token"}
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    """임시 DB 로 앱을 띄우고 시드 데이터를 넣은 테스트 클라이언트."""
     monkeypatch.delenv("QA_TOKEN", raising=False)
     monkeypatch.delenv("QA_TOOLS_ENABLED", raising=False)
     client = TestClient(create_app(str(tmp_path / "test.db")))

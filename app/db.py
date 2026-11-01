@@ -77,10 +77,15 @@ TABLES = ["order_status_history", "order_items", "orders", "cart_items", "coupon
 
 
 def get_db_path() -> str:
+    """DB 파일 경로. 환경변수 DB_PATH 가 없으면 commerce.db."""
     return os.getenv("DB_PATH", "commerce.db")
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:
+    """SQLite 연결을 연다.
+
+    결과를 dict 처럼 꺼낼 수 있게 Row 팩토리를 쓰고, 외래키 검사를 켠다(SQLite 는 기본으로 꺼져 있음).
+    """
     conn = sqlite3.connect(path or get_db_path(), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -88,11 +93,13 @@ def connect(path: str | None = None) -> sqlite3.Connection:
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
+    """테이블이 없으면 만든다. 이미 있으면 그대로 둔다."""
     conn.executescript(SCHEMA)
     conn.commit()
 
 
 def reset_all(conn: sqlite3.Connection) -> None:
+    """모든 테이블을 지우고 다시 만든다. 테이블을 DROP 하므로 ID 번호도 1부터 다시 시작한다."""
     with conn:
         for table in TABLES:
             conn.execute(f"DROP TABLE IF EXISTS {table}")

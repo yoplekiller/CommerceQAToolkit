@@ -35,6 +35,10 @@ SHIPPING_FEE = 3000
 
 
 class DomainError(Exception):
+    """도메인 규칙 위반.
+
+    code 는 테스트에서 검증할 에러 코드, status_code 는 HTTP 응답 코드로 그대로 쓰인다.
+    """
     def __init__(self, code: str, message: str, status_code: int = 400):
         super().__init__(message)
         self.code = code
@@ -43,20 +47,24 @@ class DomainError(Exception):
 
 
 def now() -> datetime:
+    """현재 시각(UTC). 쿠폰 만료 비교와 상태 이력 시각에 쓴다."""
     return datetime.now(timezone.utc)
 
 
 def _ts(dt: datetime | None = None) -> str:
+    """DB 에 저장할 ISO 8601 문자열(초 단위)로 바꾼다. dt 를 안 주면 현재 시각."""
     return (dt or now()).isoformat(timespec="seconds")
 
 
 # ---------- 상품 ----------
 
 def list_products(conn: sqlite3.Connection) -> list[dict]:
+    """전체 상품 목록 (품절·판매중지 상품 포함)."""
     return [dict(r) for r in conn.execute("SELECT * FROM products ORDER BY id")]
 
 
 def get_product(conn: sqlite3.Connection, product_id: int) -> dict:
+    """상품 1개 조회. 없으면 PRODUCT_NOT_FOUND(404)."""
     row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     if not row:
         raise DomainError("PRODUCT_NOT_FOUND", f"상품을 찾을 수 없습니다: {product_id}", 404)
@@ -64,6 +72,10 @@ def get_product(conn: sqlite3.Connection, product_id: int) -> dict:
 
 
 def _check_orderable(product: dict, quantity: int) -> None:
+    """상품을 quantity 개 주문/담기 할 수 있는지 검사한다 (R1~R5).
+
+    검사 순서: 수량 범위 -> 판매중지 -> 품절 -> 재고 부족 -> 1회 구매 제한.
+    """
     if not 1 <= quantity <= MAX_QUANTITY:
         raise DomainError("INVALID_QUANTITY", f"수량은 1~{MAX_QUANTITY}개만 가능합니다: {quantity}")
     if not product["is_active"]:
@@ -86,6 +98,7 @@ def _check_orderable(product: dict, quantity: int) -> None:
 # ---------- 회원 / 쿠폰 ----------
 
 def get_user(conn: sqlite3.Connection, user_id: int) -> dict:
+    """회원 1명 조회. 없으면 USER_NOT_FOUND(404)."""
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if not row:
         raise DomainError("USER_NOT_FOUND", f"회원을 찾을 수 없습니다: {user_id}", 404)
@@ -93,6 +106,10 @@ def get_user(conn: sqlite3.Connection, user_id: int) -> dict:
 
 
 def create_user(conn: sqlite3.Connection, email: str, name: str, is_test: bool = False) -> dict:
+    """회원 가입. 이메일이 중복이면 EMAIL_DUPLICATED(409).
+
+    is_test=True 는 QA 도구가 만든 테스트 계정이라는 표시.
+    """
     if conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
         raise DomainError("EMAIL_DUPLICATED", f"이미 가입된 이메일입니다: {email}", 409)
     with conn:
@@ -104,6 +121,7 @@ def create_user(conn: sqlite3.Connection, email: str, name: str, is_test: bool =
 
 
 def list_coupons(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    """회원이 가진 쿠폰 전체 (사용·만료 쿠폰 포함). used_order_id 가 있으면 이미 쓴 쿠폰."""
     get_user(conn, user_id)
     return [dict(r) for r in conn.execute("SELECT * FROM coupons WHERE user_id = ? ORDER BY id", (user_id,))]
 
@@ -117,6 +135,11 @@ def issue_coupon(
     max_discount: int | None = None,
     expires_in_days: int = 30,
 ) -> dict:
+    """쿠폰 발급.
+
+    FIXED 는 value 원 할인, PERCENT 는 value%(1~100) 할인.
+    expires_in_days 가 음수면 이미 만료된 쿠폰이 만들어진다 (만료 쿠폰 테스트용).
+    """
     get_user(conn, user_id)
     if discount_type not in ("FIXED", "PERCENT"):
         raise DomainError("INVALID_COUPON", f"지원하지 않는 쿠폰 타입입니다: {discount_type}")
@@ -134,6 +157,7 @@ def issue_coupon(
 
 
 def calc_discount(coupon: dict, items_amount: int) -> int:
+    """쿠폰 할인 금액 계산 (R9). 정률 쿠폰은 원 단위 버림 후 최대 할인 금액으로 자른다."""
     if coupon["discount_type"] == "FIXED":
         discount = coupon["value"]
     else:
@@ -145,11 +169,16 @@ def calc_discount(coupon: dict, items_amount: int) -> int:
 
 
 def calc_shipping_fee(items_amount: int) -> int:
+    """배송비 계산 (R7). 상품 합계가 19,800원 이상이면 0원, 미만이면 3,000원."""
     # 무료배송 기준은 쿠폰 할인 전 상품 합계
     return 0 if items_amount >= FREE_SHIPPING_THRESHOLD else SHIPPING_FEE
 
 
 def _validate_coupon(conn: sqlite3.Connection, coupon_id: int, user_id: int, items_amount: int) -> dict:
+    """이 주문에 쿠폰을 쓸 수 있는지 검사하고 쿠폰 정보를 돌려준다 (R8).
+
+    검사 순서: 존재 -> 본인 쿠폰 -> 사용 여부 -> 만료 -> 쿠폰 최소주문금액.
+    """
     row = conn.execute("SELECT * FROM coupons WHERE id = ?", (coupon_id,)).fetchone()
     if not row:
         raise DomainError("COUPON_NOT_FOUND", f"쿠폰을 찾을 수 없습니다: {coupon_id}", 404)
@@ -171,6 +200,7 @@ def _validate_coupon(conn: sqlite3.Connection, coupon_id: int, user_id: int, ite
 # ---------- 장바구니 ----------
 
 def get_cart(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    """장바구니 목록. 가격은 담은 시점이 아니라 지금 상품 가격 기준."""
     get_user(conn, user_id)
     return [
         dict(r) for r in conn.execute(
@@ -183,6 +213,7 @@ def get_cart(conn: sqlite3.Connection, user_id: int) -> list[dict]:
 
 
 def add_to_cart(conn: sqlite3.Connection, user_id: int, product_id: int, quantity: int) -> list[dict]:
+    """장바구니 담기 (R15). 이미 담긴 상품이면 수량을 합친다."""
     get_user(conn, user_id)
     product = get_product(conn, product_id)
     row = conn.execute(
@@ -201,6 +232,7 @@ def add_to_cart(conn: sqlite3.Connection, user_id: int, product_id: int, quantit
 
 
 def remove_from_cart(conn: sqlite3.Connection, user_id: int, product_id: int) -> list[dict]:
+    """장바구니에서 상품을 뺀다. 담겨 있지 않은 상품이어도 에러 없이 현재 장바구니를 돌려준다."""
     get_user(conn, user_id)
     with conn:
         conn.execute("DELETE FROM cart_items WHERE user_id = ? AND product_id = ?", (user_id, product_id))
@@ -210,6 +242,7 @@ def remove_from_cart(conn: sqlite3.Connection, user_id: int, product_id: int) ->
 # ---------- 주문 ----------
 
 def get_order(conn: sqlite3.Connection, order_id: int) -> dict:
+    """주문 상세: 주문 정보 + 주문 상품(items) + 상태 변경 이력(history)."""
     row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     if not row:
         raise DomainError("ORDER_NOT_FOUND", f"주문을 찾을 수 없습니다: {order_id}", 404)
@@ -295,6 +328,10 @@ def create_order(
 
 
 def checkout_cart(conn: sqlite3.Connection, user_id: int, coupon_id: int | None = None) -> dict:
+    """장바구니 전체를 한 주문으로 결제하고 장바구니를 비운다.
+
+    주문 생성이 실패하면(품절 등) 장바구니는 그대로 남는다.
+    """
     cart = get_cart(conn, user_id)
     if not cart:
         raise DomainError("EMPTY_CART", "장바구니가 비어 있습니다.")
@@ -312,6 +349,11 @@ def change_status(
     actor: str,
     reason: str | None = None,
 ) -> dict:
+    """주문 상태를 한 단계 바꾼다 (R12).
+
+    ALLOWED_TRANSITIONS 에 없는 이동이면 INVALID_STATUS_TRANSITION(409).
+    CANCELED / RETURNED 로 바뀌면 재고와 쿠폰을 되돌린다 (R11).
+    """
     if to_status not in STATUSES:
         raise DomainError("INVALID_STATUS", f"존재하지 않는 상태입니다: {to_status}")
     order = get_order(conn, order_id)
@@ -344,6 +386,7 @@ def change_status(
 
 
 def cancel_by_customer(conn: sqlite3.Connection, order_id: int, reason: str | None = None) -> dict:
+    """고객 취소 (R13). 배송 시작 전(PAID / PREPARING)에만 가능."""
     order = get_order(conn, order_id)
     if order["status"] not in (PAID, PREPARING):
         raise DomainError(
@@ -355,6 +398,7 @@ def cancel_by_customer(conn: sqlite3.Connection, order_id: int, reason: str | No
 
 
 def request_return(conn: sqlite3.Connection, order_id: int, reason: str | None = None) -> dict:
+    """고객 반품 요청 (R14). DELIVERED 에서만 가능. 반품완료(RETURNED)는 판매자가 처리한다."""
     order = get_order(conn, order_id)
     if order["status"] != DELIVERED:
         raise DomainError(
@@ -366,6 +410,7 @@ def request_return(conn: sqlite3.Connection, order_id: int, reason: str | None =
 
 
 def confirm_purchase(conn: sqlite3.Connection, order_id: int) -> dict:
+    """고객 구매확정. DELIVERED 에서만 가능하고, 확정 후에는 반품할 수 없다."""
     return change_status(conn, order_id, CONFIRMED, "customer")
 
 

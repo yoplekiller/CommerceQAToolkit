@@ -19,6 +19,7 @@ SCENARIOS = ["basic", "multi_item", "coupon_fixed", "coupon_percent", "free_ship
 
 
 def call(method: str, path: str, body: dict | None = None):
+    """QA 서버 API 호출. 에러 응답이면 에러 코드/메시지를 빨간색으로 출력하고 종료한다."""
     try:
         res = requests.request(method, BASE_URL + path, json=body, headers={"X-QA-Token": QA_TOKEN}, timeout=30)
     except requests.ConnectionError:
@@ -39,6 +40,7 @@ def rjust(text: str, width: int) -> str:
 
 
 def print_orders(orders: list[dict]) -> None:
+    """주문 목록을 표로 출력한다."""
     headers = [("ID", 4), ("상태", 18), ("상품합계", 10), ("배송비", 8), ("할인", 8), ("결제금액", 10)]
     click.echo("".join(rjust(h, w) for h, w in headers) + "  상품")
     for o in orders:
@@ -50,6 +52,7 @@ def print_orders(orders: list[dict]) -> None:
 
 
 def print_products(products: list[dict]) -> None:
+    """상품 목록을 출력한다 (판매중지/품절/구매제한 표시)."""
     for p in products:
         tags = []
         if not p["is_active"]:
