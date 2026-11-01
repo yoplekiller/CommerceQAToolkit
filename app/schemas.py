@@ -70,6 +70,15 @@ class CouponIssueIn(BaseModel):
     expires_in_days: int = 30
 
 
+class ProductCreate(BaseModel):
+    """테스트 상품 생성 요청."""
+    name: str
+    price: int
+    stock: int
+    max_per_order: int | None = None
+    is_active: bool = True
+
+
 class StockSet(BaseModel):
     """재고 설정 요청."""
     stock: int

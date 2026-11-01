@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from app import qa_tools, services
 from app.deps import get_conn
-from app.schemas import AdvanceIn, BulkUsersIn, CartFillIn, CouponIssueIn, OrderGenerateIn, StockSet
+from app.schemas import AdvanceIn, BulkUsersIn, CartFillIn, CouponIssueIn, OrderGenerateIn, ProductCreate, StockSet
 
 
 def require_qa_access(x_qa_token: str | None = Header(default=None)):
@@ -45,6 +45,12 @@ def issue_coupon(body: CouponIssueIn, conn=Depends(get_conn)):
         conn, body.user_id, body.discount_type, body.value,
         body.min_order_amount, body.max_discount, body.expires_in_days,
     )
+
+
+@router.post("/products", status_code=201)
+def create_product(body: ProductCreate, conn=Depends(get_conn)):
+    """테스트 상품 생성 (경계값 가격/재고 상품 만들기)"""
+    return qa_tools.create_product(conn, body.name, body.price, body.stock, body.max_per_order, body.is_active)
 
 
 @router.put("/products/{product_id}/stock")

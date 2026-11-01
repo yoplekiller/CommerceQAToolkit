@@ -60,10 +60,10 @@ stateDiagram-v2
 | R9 | 정액 쿠폰 할인 = 쿠폰금액(상품 합계 초과 불가), 정률 쿠폰 = 상품합계 × %(원 단위 버림), 최대할인 상한 | - |
 | R10 | 결제금액 = 상품합계 + 배송비 − 할인 (배송비는 할인 대상 아님) | - |
 | R11 | 취소/반품완료 시 재고와 쿠폰 복구 | - |
-| R12 | 허용되지 않은 상태 전이 거부 | `INVALID_STATUS_TRANSITION` |
+| R12 | 허용되지 않은 상태 전이 거부. 구매확정·반품요청은 고객 API 로만 가능 (판매자/택배사 상태변경 API 로는 거부) | `INVALID_STATUS_TRANSITION` `STATUS_NOT_ALLOWED_FOR_ACTOR` |
 | R13 | 배송 시작 후 취소 거부 | `CANCEL_NOT_ALLOWED` |
 | R14 | 배송완료가 아닌 주문의 반품 요청 거부 | `RETURN_NOT_ALLOWED` |
-| R15 | 장바구니: 같은 상품을 다시 담으면 수량 합산, 합산 수량 기준으로 R1~R5 검사. 장바구니 주문 후 장바구니 비움 | `EMPTY_CART` |
+| R15 | 장바구니: 같은 상품을 다시 담으면 수량 합산, 추가 수량(1~99)과 합산 수량 모두 R1~R5 기준으로 검사. 장바구니 주문 후 장바구니 비움(주문 실패 시 유지) | `EMPTY_CART` |
 
 에러 응답 형식: `{"error": {"code": "...", "message": "..."}}`
 
@@ -79,7 +79,7 @@ stateDiagram-v2
 | POST | `/orders` | 바로 주문 |
 | POST | `/orders/checkout` | 장바구니 주문 |
 | GET | `/orders/{id}` | 주문 상세 (항목 + 상태 이력) |
-| POST | `/orders/{id}/status` | 판매자/택배사 상태 변경 (한 단계) |
+| POST | `/orders/{id}/status` | 판매자/택배사 상태 변경 (한 단계, 구매확정·반품요청 불가) |
 | POST | `/orders/{id}/cancel` | 고객 취소 |
 | POST | `/orders/{id}/return` | 고객 반품 요청 |
 | POST | `/orders/{id}/confirm` | 고객 구매확정 |
@@ -94,6 +94,7 @@ QA 도구 API는 `X-QA-Token` 헤더가 맞아야 동작하고, `QA_TOOLS_ENABLE
 | 전체 초기화 | `POST /qa/reset` | `qatool reset` |
 | 테스트 계정 일괄 생성 | `POST /qa/users/bulk` | `qatool users --count 5` |
 | 쿠폰 발급 (만료 쿠폰 포함) | `POST /qa/coupons/issue` | `qatool coupon --user 1 --type PERCENT --value 10 --expires-days -1` |
+| 테스트 상품 생성 (경계값 가격) | `POST /qa/products` | - |
 | 재고 조정 (품절 만들기) | `PUT /qa/products/{id}/stock` | `qatool stock 4 0` |
 | 장바구니 자동 담기 | `POST /qa/carts/fill` | `qatool cart --user 1 --count 3` |
 | **주문 자동생성** | `POST /qa/orders/generate` | `qatool orders gen --count 10 --scenario coupon_fixed --status DELIVERED` |
@@ -133,5 +134,5 @@ QA 도구 API는 `X-QA-Token` 헤더가 맞아야 동작하고, `QA_TOOLS_ENABLE
 
 1. **v1 (완료)**: 서비스 API + QA 도구 API + CLI
 2. **v2 (완료)**: QA 도구 웹 화면 (`/`) + Render 공개 데모 배포 설정
-3. v3: Slack 슬래시 커맨드 (`/주문생성 coupon_fixed 3건 배송완료`)
-4. 사용자 작업: pytest API 테스트(R1~R15) / Playwright·Postman이 QA 도구로 사전조건을 만들어 쓰는 구조
+3. **테스트 스위트 (완료)**: pytest API 테스트(R1~R15 전부) + Playwright 웹 화면 E2E, 사전조건은 QA 도구로 준비
+4. v3: Slack 슬래시 커맨드

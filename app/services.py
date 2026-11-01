@@ -26,6 +26,9 @@ ALLOWED_TRANSITIONS = {
     RETURNED: set(),
 }
 
+# 고객 API(/confirm, /return)로만 들어갈 수 있는 상태
+CUSTOMER_ONLY_STATUSES = {CONFIRMED, RETURN_REQUESTED}
+
 # 재고/쿠폰을 되돌리는 종료 상태
 RESTORING_STATUSES = {CANCELED, RETURNED}
 
@@ -216,6 +219,9 @@ def add_to_cart(conn: sqlite3.Connection, user_id: int, product_id: int, quantit
     """장바구니 담기 (R15). 이미 담긴 상품이면 수량을 합친다."""
     get_user(conn, user_id)
     product = get_product(conn, product_id)
+    # 추가하는 수량 자체도 검사한다. 합친 수량만 보면 0/음수를 담아도 통과해서 수량이 그대로거나 줄어든다
+    if not 1 <= quantity <= MAX_QUANTITY:
+        raise DomainError("INVALID_QUANTITY", f"수량은 1~{MAX_QUANTITY}개만 가능합니다: {quantity}")
     row = conn.execute(
         "SELECT quantity FROM cart_items WHERE user_id = ? AND product_id = ?", (user_id, product_id)
     ).fetchone()
@@ -383,6 +389,23 @@ def change_status(
             )
             conn.execute("UPDATE coupons SET used_order_id = NULL WHERE used_order_id = ?", (order_id,))
     return get_order(conn, order_id)
+
+
+def change_status_by_staff(
+    conn: sqlite3.Connection,
+    order_id: int,
+    to_status: str,
+    actor: str,
+    reason: str | None = None,
+) -> dict:
+    """판매자/택배사 상태 변경. 구매확정·반품요청은 고객만 할 수 있어서 403 STATUS_NOT_ALLOWED_FOR_ACTOR."""
+    if to_status in CUSTOMER_ONLY_STATUSES:
+        raise DomainError(
+            "STATUS_NOT_ALLOWED_FOR_ACTOR",
+            f"{to_status} 는 고객만 바꿀 수 있습니다 (요청 주체: {actor}).",
+            403,
+        )
+    return change_status(conn, order_id, to_status, actor, reason)
 
 
 def cancel_by_customer(conn: sqlite3.Connection, order_id: int, reason: str | None = None) -> dict:

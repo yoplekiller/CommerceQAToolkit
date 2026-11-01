@@ -77,13 +77,28 @@ $ python qatool.py orders advance 1 --to RETURNED
 ## 테스트
 
 ```bash
-pytest -q          # tests/test_qa_tools.py: QA 도구 자체 검증 23건
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+
+pytest                 # 전체 126건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
+pytest -m "not e2e"    # 브라우저 없이 API + QA 도구만
+pytest -m e2e          # 웹 화면 E2E 만
+pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 ```
+
+| 위치 | 내용 | 수 |
+|---|---|---|
+| `tests/api/` | 서비스 API: 도메인 규칙 R1~R15, 경계값(무료배송 19,799/19,800, 수량 0/1/99/100, 구매제한, 쿠폰 최소주문·최대할인), 상태 전이 전체 | 96 |
+| `tests/e2e/` | 웹 화면 (Playwright, `data-testid` 로케이터): 주문 생성, 상태 이동·이력, 이동 가능 상태만 노출, 품절, 에러 토스트, 초기화 2단계 | 7 |
+| `tests/test_qa_tools.py` | QA 도구 자체 검증 | 23 |
+
+- 사전조건(계정·쿠폰·재고·특정 상태 주문)은 전부 **QA 도구(`/qa/*`)로 준비**하고, 테스트 본문엔 검증 대상 호출과 assert 만 둔다.
+- CI 는 API / E2E 잡을 나눠 돌리고, JUnit XML 과 E2E 실패 시 Playwright trace·스크린샷을 artifact 로 올린다.
+- 변경 기록: [docs/changes/](docs/changes/)
 
 ## 로드맵
 
 - [x] v1: 서비스 API + QA 도구 API + CLI
-- [ ] 서비스 API 자동화 테스트 스위트 (pytest, 도메인 규칙 R1~R15)
+- [x] 서비스 API 자동화 테스트 스위트 (pytest, 도메인 규칙 R1~R15) + 웹 화면 E2E
 - [x] v2: QA 도구 웹 화면 + Render 배포 설정
 - [ ] v3: Slack 슬래시 커맨드
-- [ ] Playwright / Postman 테스트가 QA 도구로 사전조건을 준비하는 구조

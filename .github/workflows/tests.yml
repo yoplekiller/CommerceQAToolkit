@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  pytest:
+  api:
+    name: API + QA 도구 테스트
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,5 +16,46 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: pytest -q
+      - run: pip install -r requirements-dev.txt
+      - name: pytest (e2e 제외)
+        run: pytest -m "not e2e" --junitxml=reports/junit-api.xml | tee reports-api.log
+        shell: bash
+      - name: 규칙 커버리지 요약
+        if: always()
+        run: |
+          echo '### 도메인 규칙 커버리지' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -n '/도메인 규칙 커버리지/,/passed\|failed/p' reports-api.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-api
+          path: reports/junit-api.xml
+
+  e2e:
+    name: 웹 화면 E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: pytest e2e
+        run: >
+          pytest -m e2e --junitxml=reports/junit-e2e.xml
+          --tracing retain-on-failure --screenshot only-on-failure --output test-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: junit-e2e
+          path: reports/junit-e2e.xml
+      - name: 실패 시 trace/스크린샷 업로드
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/

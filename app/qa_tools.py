@@ -60,6 +60,25 @@ def set_stock(conn: sqlite3.Connection, product_id: int, stock: int) -> dict:
     return services.get_product(conn, product_id)
 
 
+def create_product(
+    conn: sqlite3.Connection,
+    name: str,
+    price: int,
+    stock: int,
+    max_per_order: int | None = None,
+    is_active: bool = True,
+) -> dict:
+    """테스트용 상품을 바로 만든다. 시드 가격으로 만들 수 없는 경계값(예: 19,799원) 테스트용."""
+    if price < 0 or stock < 0:
+        raise DomainError("INVALID_PRODUCT", f"가격과 재고는 0 이상이어야 합니다: price={price}, stock={stock}")
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO products (name, price, stock, max_per_order, is_active) VALUES (?, ?, ?, ?, ?)",
+            (name, price, stock, max_per_order, int(is_active)),
+        )
+    return services.get_product(conn, cur.lastrowid)
+
+
 def _orderable_products(conn: sqlite3.Connection) -> list[dict]:
     """지금 주문할 수 있는 상품 (판매중 + 재고 있음)."""
     return [p for p in services.list_products(conn) if p["is_active"] and p["stock"] > 0]

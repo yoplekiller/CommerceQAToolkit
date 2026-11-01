@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "rule(id): docs/SPEC.md 도메인 규칙 번호 (예: R7). 실행 끝에 규칙별 테스트 수를 출력한다.",
+    "e2e: 브라우저(Playwright)로 웹 화면을 검증하는 E2E 테스트. 빠르게 돌릴 땐 -m 'not e2e'.",
+]

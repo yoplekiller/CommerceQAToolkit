@@ -71,8 +71,8 @@ def get_order(order_id: int, conn=Depends(get_conn)):
 
 @router.post("/orders/{order_id}/status")
 def change_status(order_id: int, body: StatusChange, conn=Depends(get_conn)):
-    """판매자/택배사 상태 변경 (한 단계씩)"""
-    return services.change_status(conn, order_id, body.status, body.actor, body.reason)
+    """판매자/택배사 상태 변경 (한 단계씩, 구매확정·반품요청은 불가)"""
+    return services.change_status_by_staff(conn, order_id, body.status, body.actor, body.reason)
 
 
 @router.post("/orders/{order_id}/cancel")
