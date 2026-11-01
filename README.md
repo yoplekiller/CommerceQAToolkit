@@ -10,11 +10,26 @@
 
 상세 명세(상태 흐름, 도메인 규칙 R1~R15, API 목록, 시드 데이터): [docs/SPEC.md](docs/SPEC.md)
 
+## 웹 화면
+
+![QA 도구 웹 화면](docs/screenshot.png)
+
+- 주문 자동생성(시나리오 · 목표 상태 · 개수 · 시드), 주문 목록에서 상태 이동 + 이력 보기, 재고 조정/품절, 테스트 계정 · 쿠폰 · 장바구니 준비
+- 상태 이동 선택지는 서버의 상태 전이표(`/config`)로 계산해서 **갈 수 있는 상태만** 보여준다
+- 모든 조작 요소에 `data-testid` 가 있어 Playwright 테스트 대상으로 쓸 수 있다
+
+### 공개 데모 배포 (Render)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/yoplekiller/CommerceQAToolkit)
+
+`render.yaml` 설정으로 배포된다. 데모는 `DEMO_MODE=true` 라서 화면이 QA 토큰을 자동으로 채운다(가짜 데이터라 공개해도 되는 경우에만 켤 것).
+무료 플랜은 15분간 요청이 없으면 잠들고 깨어날 때 데이터가 초기화된다(`AUTO_SEED=true` 로 기본 상품 자동 생성). 첫 접속은 30초 정도 걸릴 수 있다.
+
 ## 실행
 
 ```bash
 pip install -r requirements.txt
-uvicorn app.main:create_app --factory --reload   # http://127.0.0.1:8000/docs
+uvicorn app.main:create_app --factory --reload   # 웹 화면 http://127.0.0.1:8000 · API 문서 /docs
 ```
 
 ## QA 도구 CLI
@@ -46,6 +61,8 @@ $ python qatool.py orders advance 1 --to RETURNED
 | `QA_TOKEN` | `local-qa-token` | QA 도구 API `X-QA-Token` 헤더 값 |
 | `QA_TOOLS_ENABLED` | `true` | `false`면 `/qa/*` 전체 404 (운영 노출 방지) |
 | `QA_BASE_URL` | `http://127.0.0.1:8000` | CLI가 호출할 서버 |
+| `DEMO_MODE` | `false` | `true`면 웹 화면에 QA 토큰 자동 입력 (공개 데모용) |
+| `AUTO_SEED` | `false` | `true`면 시작 시 상품이 없을 때 시드 데이터 생성 |
 
 ## 설계 포인트
 
@@ -58,13 +75,13 @@ $ python qatool.py orders advance 1 --to RETURNED
 ## 테스트
 
 ```bash
-pytest -q          # tests/test_qa_tools.py: QA 도구 자체 검증 21건
+pytest -q          # tests/test_qa_tools.py: QA 도구 자체 검증 23건
 ```
 
 ## 로드맵
 
 - [x] v1: 서비스 API + QA 도구 API + CLI
 - [ ] 서비스 API 자동화 테스트 스위트 (pytest, 도메인 규칙 R1~R15)
-- [ ] v2: QA 도구 웹 화면
+- [x] v2: QA 도구 웹 화면 + Render 배포 설정
 - [ ] v3: Slack 슬래시 커맨드
 - [ ] Playwright / Postman 테스트가 QA 도구로 사전조건을 준비하는 구조

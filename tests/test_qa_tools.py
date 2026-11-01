@@ -157,3 +157,23 @@ def test_qa_api_hidden_when_disabled(client, monkeypatch):
     """QA_TOOLS_ENABLED=false 면 QA 도구 API 가 404."""
     monkeypatch.setenv("QA_TOOLS_ENABLED", "false")
     assert client.post("/qa/seed", headers=QA_HEADERS).status_code == 404
+
+
+def test_list_orders_filters_by_status_latest_first(client, qa):
+    """주문 목록은 최신순이고 status 로 거를 수 있다."""
+    qa("/orders/generate", {"count": 2, "target_status": "DELIVERED"})
+    qa("/orders/generate", {"count": 1})
+    all_orders = client.get("/qa/orders", headers=QA_HEADERS).json()
+    assert [o["id"] for o in all_orders] == [3, 2, 1]
+    delivered = client.get("/qa/orders?status=DELIVERED", headers=QA_HEADERS).json()
+    assert [o["id"] for o in delivered] == [2, 1]
+
+
+def test_web_page_and_config(client, monkeypatch):
+    """웹 화면이 열리고, QA 토큰은 데모 모드에서만 /config 로 내려간다."""
+    assert "Commerce QA Toolkit" in client.get("/").text
+    config = client.get("/config").json()
+    assert config["qa_token"] is None
+    assert config["transitions"]["SHIPPING"] == ["DELIVERED"]
+    monkeypatch.setenv("DEMO_MODE", "true")
+    assert client.get("/config").json()["qa_token"] == "local-qa-token"

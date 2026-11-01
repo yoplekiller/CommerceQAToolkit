@@ -1,7 +1,7 @@
 """QA 도구 API. X-QA-Token 이 맞아야 하고, QA_TOOLS_ENABLED=false 면 라우트 자체가 없는 것처럼 404."""
 import os
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from app import qa_tools, services
 from app.deps import get_conn
@@ -63,6 +63,12 @@ def fill_cart(body: CartFillIn, conn=Depends(get_conn)):
 def generate_orders(body: OrderGenerateIn, conn=Depends(get_conn)):
     """주문 자동생성 + 목표 상태까지 자동 진행"""
     return qa_tools.generate_orders(conn, body.count, body.scenario, body.target_status, body.user_id, body.seed)
+
+
+@router.get("/orders")
+def list_orders(status: str | None = None, limit: int = Query(50, ge=1, le=200), conn=Depends(get_conn)):
+    """최근 주문 목록 (최신순, status 로 필터)"""
+    return qa_tools.list_orders(conn, status, limit)
 
 
 @router.post("/orders/{order_id}/advance")

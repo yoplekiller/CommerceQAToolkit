@@ -151,3 +151,17 @@ def generate_orders(
         order = services.create_order(conn, user_id, items, coupon_id, actor="qa-tool")
         orders.append(services.advance_to(conn, order["id"], target_status))
     return orders
+
+
+def list_orders(conn: sqlite3.Connection, status: str | None = None, limit: int = 50) -> list[dict]:
+    """최근 주문 목록 (최신순). status 를 주면 그 상태만. 웹 화면 주문 표에서 쓴다."""
+    if status is not None and status not in services.STATUSES:
+        raise DomainError("INVALID_STATUS", f"존재하지 않는 상태입니다: {status}")
+    query = "SELECT id FROM orders"
+    params: list = []
+    if status is not None:
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    return [services.get_order(conn, row["id"]) for row in conn.execute(query, params)]

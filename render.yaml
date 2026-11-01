@@ -1,0 +1,19 @@
+# Render Blueprint: 공개 데모 배포 설정
+# 무료 플랜은 15분 동안 요청이 없으면 잠들고, 다시 깨어날 때 디스크가 초기화된다 → AUTO_SEED 로 기본 상품을 다시 넣는다.
+services:
+  - type: web
+    name: commerce-qa-toolkit
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
+    healthCheckPath: /products
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DEMO_MODE
+        value: "true"
+      - key: AUTO_SEED
+        value: "true"
+      - key: QA_TOKEN
+        generateValue: true
