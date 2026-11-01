@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 import pytest
 
+from app import slack_auth
 from app.slack_bot import CommandError, parse_command, verify_signature
 
 SECRET = "test-signing-secret"
@@ -19,17 +20,41 @@ def sign(body: bytes, timestamp: int | None = None, secret: str = SECRET) -> dic
             "Content-Type": "application/x-www-form-urlencoded"}
 
 
-@pytest.fixture
-def slack(client, monkeypatch):
-    """서명된 /qa 요청을 보내는 헬퍼: slack("주문 3건") → 응답 JSON."""
-    monkeypatch.setenv("SLACK_SIGNING_SECRET", SECRET)
+# 테스트용 권한: U_ADMIN=admin, U_TESTER=tester, U_VIEWER=viewer, 그 외 none, QA 채널(C_QA)만 허용
+PERMISSIONS = """
+default_role: none
+channels: [C_QA]
+users:
+  U_ADMIN: admin
+  U_TESTER: tester
+  U_VIEWER: viewer
+"""
 
-    def _send(text: str):
-        body = urlencode({"command": "/qa", "text": text, "user_id": "U123"}).encode()
+
+@pytest.fixture(autouse=True)
+def slack_env(monkeypatch):
+    """서명 시크릿 + 권한 설정, 사용량 제한 기록은 테스트마다 비운다."""
+    monkeypatch.setenv("SLACK_SIGNING_SECRET", SECRET)
+    monkeypatch.setenv("SLACK_PERMISSIONS", PERMISSIONS)
+    slack_auth.limiter.clear()
+
+
+@pytest.fixture
+def send(client):
+    """서명된 /qa 요청: send("주문 3건", user="U_TESTER", channel="C_QA") → 응답 JSON."""
+    def _send(text: str, user: str = "U_ADMIN", channel: str = "C_QA", name: str | None = None):
+        body = urlencode({"command": "/qa", "text": text, "user_id": user,
+                          "user_name": name or user.lower(), "channel_id": channel}).encode()
         res = client.post("/slack/commands", content=body, headers=sign(body))
         assert res.status_code == 200, res.text
         return res.json()
     return _send
+
+
+@pytest.fixture
+def slack(send):
+    """관리자(U_ADMIN)로 QA 채널에서 보내는 헬퍼: slack("주문 3건")."""
+    return lambda text: send(text)
 
 
 # ---------- 명령어 해석 ----------
@@ -146,7 +171,7 @@ def test_advance_command_records_slack_actor(client, slack):
     res = slack("상태 1 반품완료")
     assert "결제완료 → *반품완료*" in res["text"]
     history = client.get("/orders/1").json()["history"]
-    assert [h["actor"] for h in history[1:]] == ["slack"] * 5
+    assert [h["actor"] for h in history[1:]] == ["slack:u_admin"] * 5
 
 
 def test_domain_error_is_private_message(slack):
@@ -195,3 +220,89 @@ def test_product_command_registers_with_seller_rules(client, slack):
     assert client.get("/products/9").json()["price"] == 19799
     bad = slack("상품 공짜 0 1")
     assert bad["response_type"] == "ephemeral" and "INVALID_PRODUCT" in bad["text"]
+
+
+# ---------- 권한 · 사용량 제한 · 감사 로그 ----------
+
+@pytest.mark.parametrize("user, command, allowed", [
+    ("U_STRANGER", "help", True), ("U_STRANGER", "내권한", True), ("U_STRANGER", "조회 1", False),
+    ("U_VIEWER", "조회 1", True), ("U_VIEWER", "주문", False),
+    ("U_TESTER", "주문", True), ("U_TESTER", "재고 4 0", True), ("U_TESTER", "초기화 확인", False),
+    ("U_TESTER", "로그", False), ("U_ADMIN", "초기화 확인", True), ("U_ADMIN", "로그", True),
+])
+def test_role_matrix(send, user, command, allowed):
+    """역할별 실행 가능 명령: none(help·내권한) < viewer(+조회) < tester(+데이터 생성/변경) < admin(+초기화·로그)."""
+    send("주문", user="U_ADMIN")  # 조회 대상 주문 1건
+    res = send(command, user=user)
+    assert ("🚫" not in res["text"]) is allowed, res["text"]
+
+
+def test_denied_message_tells_required_role_and_user_id(send):
+    """권한이 없으면 필요한 역할 · 현재 역할 · 등록할 사용자 ID 를 본인에게만 알려주고, 데이터는 안 바뀐다."""
+    res = send("주문 3건", user="U_VIEWER")
+    assert res["response_type"] == "ephemeral"
+    assert "`tester` 권한이 필요합니다" in res["text"] and "`viewer`" in res["text"] and "`U_VIEWER`" in res["text"]
+
+
+def test_channel_restriction(send, client):
+    """허용 채널 밖에서는 관리자도 데이터 명령을 못 쓴다 (help · 내권한은 어디서나)."""
+    assert "이 채널에서는" in send("주문", channel="C_RANDOM")["text"]
+    assert client.get("/admin/orders").json()["orders"] == []
+    assert "🚫" not in send("내권한", channel="C_RANDOM")["text"]
+
+
+def test_no_permission_config_locks_everything(send, monkeypatch, tmp_path):
+    """권한 설정이 아예 없으면 전부 잠긴다 (등록 전 기본값은 '닫힘')."""
+    monkeypatch.delenv("SLACK_PERMISSIONS")
+    monkeypatch.setenv("SLACK_PERMISSIONS_FILE", str(tmp_path / "없음.yaml"))
+    assert "🚫" in send("주문")["text"]
+    assert "역할 *none*" in send("내권한")["text"]
+
+
+def test_whoami_shows_id_and_role(send):
+    """내권한: 내 Slack ID 와 역할, 실행 가능한 명령 목록 (등록 요청할 때 ID 를 알려주는 용도)."""
+    res = send("내권한", user="U_TESTER", name="jaemin")
+    assert "`U_TESTER`" in res["text"] and "역할 *tester*" in res["text"]
+    assert res["response_type"] == "ephemeral"
+
+
+def test_rate_limit_per_user(send, monkeypatch):
+    """한 사람이 1분에 N번 넘게 데이터를 바꾸면 막힌다. 다른 사람과 조회 명령은 영향 없음."""
+    monkeypatch.setenv("SLACK_RATE_LIMIT_PER_MINUTE", "2")
+    assert "🚫" not in send("주문", user="U_TESTER")["text"]
+    assert "🚫" not in send("계정", user="U_TESTER")["text"]
+    assert "1분에 2번까지" in send("계정", user="U_TESTER")["text"]
+    assert "🚫" not in send("계정", user="U_ADMIN")["text"]
+    assert "🔎 주문 #1" in send("조회 1", user="U_TESTER")["text"]  # 조회는 제한 대상 아님
+
+
+def test_rate_limiter_window():
+    """제한은 최근 60초 기준: 60초가 지나면 다시 허용된다 (경계값)."""
+    limiter = slack_auth.RateLimiter()
+    limiter.check("U1", 1, now=1000.0)
+    with pytest.raises(slack_auth.PermissionDenied):
+        limiter.check("U1", 1, now=1059.9)
+    limiter.check("U1", 1, now=1060.0)
+
+
+def test_audit_log_records_ok_denied_error_and_survives_reset(send):
+    """모든 명령이 감사 로그에 남는다(성공 · 거부 · 실패). 데이터 초기화 후에도 로그는 남는다."""
+    send("주문", user="U_TESTER")
+    send("초기화 확인", user="U_TESTER")      # 거부
+    send("상태 999 배송중", user="U_TESTER")   # 없는 주문 → 실패
+    send("초기화 확인", user="U_ADMIN")       # 성공 (데이터 초기화)
+    log = send("로그 10", user="U_ADMIN")["text"]
+    assert log.count("✅") == 2 and "🚫" in log and "❌" in log and "ORDER_NOT_FOUND" in log
+
+
+def test_order_history_records_who(send, client):
+    """주문 이력에 Slack 사용자 이름이 남는다 (slack:이름)."""
+    send("주문 배송중", user="U_TESTER", name="jaemin")
+    assert {h["actor"] for h in client.get("/orders/1").json()["history"]} == {"slack:jaemin"}
+
+
+def test_invalid_role_in_config(monkeypatch):
+    """권한 설정에 없는 역할 이름이 있으면 바로 알려준다 (오타 방지)."""
+    monkeypatch.setenv("SLACK_PERMISSIONS", "users: {U1: superuser}")
+    with pytest.raises(ValueError, match="superuser"):
+        slack_auth.load_permissions()

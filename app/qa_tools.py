@@ -111,8 +111,11 @@ def generate_orders(
     target_status: str = services.PAID,
     user_id: int | None = None,
     seed_value: int | None = None,
+    actor: str = "qa-tool",
 ) -> list[dict]:
     """주문 자동생성: count 개를 시나리오대로 만들고 target_status 까지 자동 진행한다.
+
+    actor 는 주문 이력에 남을 변경 주체 (웹/CLI 는 qa-tool, Slack 은 slack:사용자).
 
     user_id 를 안 주면 테스트 계정을 하나 만들어 모든 주문에 쓴다.
     쿠폰 시나리오는 주문마다 새 쿠폰을 발급해서 쓴다.
@@ -143,8 +146,8 @@ def generate_orders(
         elif scenario == "coupon_percent":
             coupon_id = services.issue_coupon(conn, user_id, "PERCENT", 10, max_discount=5000)["id"]
 
-        order = services.create_order(conn, user_id, items, coupon_id, actor="qa-tool")
-        orders.append(services.advance_to(conn, order["id"], target_status))
+        order = services.create_order(conn, user_id, items, coupon_id, actor=actor)
+        orders.append(services.advance_to(conn, order["id"], target_status, actor=actor))
     return orders
 
 

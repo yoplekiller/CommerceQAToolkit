@@ -62,6 +62,19 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity INTEGER NOT NULL
 );
 
+-- 감사 로그: 누가 언제 어떤 QA 명령을 실행했는지. 데이터 초기화(reset_all)에도 지우지 않는다.
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    source TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    user_name TEXT,
+    channel_id TEXT,
+    command TEXT NOT NULL,
+    result TEXT NOT NULL,
+    detail TEXT
+);
+
 CREATE TABLE IF NOT EXISTS order_status_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id INTEGER NOT NULL REFERENCES orders(id),
@@ -72,7 +85,7 @@ CREATE TABLE IF NOT EXISTS order_status_history (
 );
 """
 
-# 외래키 순서상 자식 테이블부터 지운다
+# 외래키 순서상 자식 테이블부터 지운다 (audit_log 는 초기화 대상이 아님)
 TABLES = ["order_status_history", "order_items", "orders", "cart_items", "coupons", "users", "products"]
 
 

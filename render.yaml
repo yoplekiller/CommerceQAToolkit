@@ -22,3 +22,6 @@ services:
       # Slack 앱의 Signing Secret. 값은 Render 대시보드에서 직접 입력 (레포에 넣지 않음)
       - key: SLACK_SIGNING_SECRET
         sync: false
+      # Slack /qa 권한 (slack/permissions.example.yaml 형식). 없으면 전부 잠김
+      - key: SLACK_PERMISSIONS
+        sync: false

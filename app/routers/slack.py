@@ -33,4 +33,6 @@ async def slash_command(request: Request, conn=Depends(get_conn)):
 
     form = {k: v[0] for k, v in parse_qs(body.decode()).items()}
     base_url = os.getenv("PUBLIC_BASE_URL") or str(request.base_url).rstrip("/")
-    return slack_bot.handle(conn, form.get("text", ""), base_url)
+    # Slack 이 보내주는 실행자 정보 → 권한 확인 · 감사 로그 · 주문 이력에 사용
+    user = {"id": form.get("user_id", ""), "name": form.get("user_name"), "channel": form.get("channel_id")}
+    return slack_bot.handle(conn, form.get("text", ""), base_url, user)

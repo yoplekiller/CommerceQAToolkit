@@ -150,4 +150,5 @@ QA 도구 API는 `X-QA-Token` 헤더가 맞아야 동작하고, `QA_TOOLS_ENABLE
 3. **테스트 스위트 (완료)**: pytest API 테스트(R1~R15 전부) + Playwright 웹 화면 E2E, 사전조건은 QA 도구로 준비
 4. **v3 (완료)**: 쇼핑몰(`/shop`) · 판매자 어드민(`/admin`) 화면 + 주문서 계산 API
 5. **v4 (완료)**: Slack 슬래시 커맨드 `/qa` — QA 도구 기능을 Slack 에서 실행 (`POST /slack/commands`, 서명 검증)
+   - v4.1: 권한(none < viewer < tester < admin, 허용 채널, 설정 없으면 잠김) · 감사 로그(audit_log, 초기화에도 유지) · 사람별 사용량 제한
 6. **v5 (완료)**: 외부 서비스 연결 (설정 파일 기반 HTTP 어댑터 + 점검 명령)

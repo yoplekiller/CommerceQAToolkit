@@ -19,7 +19,7 @@ import re
 import sqlite3
 import time
 
-from app import qa_tools, services
+from app import qa_tools, services, slack_auth
 from app.services import DomainError
 
 SCENARIO_ALIASES = {
@@ -56,9 +56,12 @@ HELP_TEXT = (
     "• `/qa 상태 <주문ID> <상태>` 주문 상태 자동완료  예) `/qa 상태 12 반품완료`\n"
     "• `/qa 조회 <주문ID>` 주문 상세 + 처리 이력\n"
     "• `/qa 재고 <상품ID> <수량>` 재고 설정 (0 = 품절)\n"
+    "• `/qa 상품 <이름> <가격> <재고>` 상품 등록 (이름에 공백 가능)  예) `/qa 상품 테스트 머그컵 19799 5`\n"
     "• `/qa 계정 [N]` 테스트 계정 생성\n"
     "• `/qa 쿠폰 <회원ID> <정액|정률> <값> [만료일수]` 쿠폰 발급 (만료일수 음수 = 만료 쿠폰)\n"
-    "• `/qa 초기화 확인` 모든 데이터를 지우고 기본 상품으로 초기화"
+    "• `/qa 초기화 확인` 모든 데이터를 지우고 기본 상품으로 초기화 _(admin)_\n"
+    "• `/qa 내권한` 내 Slack ID · 역할 확인 · `/qa 로그 [N]` 최근 실행 기록 _(admin)_\n"
+    "권한: 조회 = viewer, 데이터 생성/변경 = tester, 초기화 · 로그 = admin"
 )
 
 
@@ -170,6 +173,15 @@ def parse_command(text: str) -> dict:
             "value": _int(args[2], "할인값"), "expires_in_days": _int(args[3], "만료일수") if len(args) == 4 else 30,
         }
 
+    if command in ("내권한", "whoami"):
+        return {"action": "whoami"}
+
+    if command in ("로그", "log"):
+        limit = _int(args[0], "개수") if args else 10
+        if not 1 <= limit <= 50:
+            raise CommandError("로그는 1~50개까지 볼 수 있습니다.")
+        return {"action": "audit", "limit": limit}
+
     if command == "초기화":
         # 실수로 지우지 않게 '확인'을 붙여야 실행 (웹 화면의 두 번 누르기와 같은 역할)
         if args != ["확인"]:
@@ -203,14 +215,14 @@ def _message(text: str, public: bool = True, base_url: str | None = None) -> dic
 
 
 def execute(conn: sqlite3.Connection, parsed: dict, actor: str = "slack") -> str:
-    """해석된 명령을 실행하고 Slack 에 보여줄 본문(mrkdwn)을 돌려준다."""
+    """해석된 명령을 실행하고 Slack 에 보여줄 본문(mrkdwn)을 돌려준다. actor 는 주문 이력에 남을 변경 주체."""
     action = parsed["action"]
     if action == "help":
         return HELP_TEXT
 
     if action == "orders":
         orders = qa_tools.generate_orders(
-            conn, parsed["count"], parsed["scenario"], parsed["target_status"], parsed["user_id"],
+            conn, parsed["count"], parsed["scenario"], parsed["target_status"], parsed["user_id"], actor=actor,
         )
         head = (f"✅ 주문 {len(orders)}건 생성 ({SCENARIO_LABEL[parsed['scenario']]} → "
                 f"{STATUS_LABEL[parsed['target_status']]}) · 회원 #{orders[0]['user_id']}")
@@ -258,14 +270,60 @@ def execute(conn: sqlite3.Connection, parsed: dict, actor: str = "slack") -> str
     raise CommandError(f"처리할 수 없는 명령입니다: {action}")
 
 
-def handle(conn: sqlite3.Connection, text: str, base_url: str | None = None) -> dict:
-    """슬래시 커맨드 텍스트 하나를 처리해 Slack 응답(dict)을 만든다. 에러도 Slack 메시지로 돌려준다."""
+def _whoami(user: dict, permissions: dict) -> str:
+    role = slack_auth.role_of(permissions, user["id"])
+    allowed = [a for a, needed in slack_auth.REQUIRED_ROLE.items()
+               if slack_auth.ROLES.index(role) >= slack_auth.ROLES.index(needed)]
+    return (f"👤 Slack ID `{user['id']}` ({user.get('name') or '-'}) · 역할 *{role}* ({slack_auth.ROLE_LABEL[role]})\n"
+            f"실행 가능: {', '.join(allowed)}")
+
+
+def _audit_text(conn: sqlite3.Connection, limit: int) -> str:
+    rows = slack_auth.recent(conn, limit)
+    if not rows:
+        return "기록이 없습니다."
+    mark = {"ok": "✅", "denied": "🚫", "error": "❌"}
+    return f"📜 최근 {len(rows)}건\n" + "\n".join(
+        f"{mark.get(r['result'], '•')} {r['at'][5:16].replace('T', ' ')} {r['user_name'] or r['user_id']} `/qa {r['command']}`"
+        + (f" — {r['detail']}" if r["result"] != "ok" and r["detail"] else "")
+        for r in rows
+    )
+
+
+def handle(conn: sqlite3.Connection, text: str, base_url: str | None = None, user: dict | None = None) -> dict:
+    """슬래시 커맨드 하나를 처리해 Slack 응답(dict)을 만든다.
+
+    순서: 해석 → 권한(역할 · 채널) → 사용량 제한 → 실행 → 감사 로그. 거부 · 실패도 로그에 남고 본인에게만 보인다.
+    user = {"id": Slack user_id, "name": user_name, "channel": channel_id}
+    """
+    user = user or {"id": "", "name": None, "channel": None}
+    command = text.strip()
     try:
         parsed = parse_command(text)
     except CommandError as e:
         return _message(f"⚠️ {e}\n`/qa help` 로 사용법을 볼 수 있어요.", public=False)
+
     try:
-        body = execute(conn, parsed)
+        permissions = slack_auth.load_permissions()
+        slack_auth.authorize(permissions, user["id"], user.get("channel") or "", parsed["action"])
+        if parsed["action"] in slack_auth.RATE_LIMITED_ACTIONS:
+            slack_auth.limiter.check(user["id"], slack_auth.rate_limit_per_minute())
+    except slack_auth.PermissionDenied as e:
+        slack_auth.record(conn, user, command, "denied", str(e))
+        return _message(f"🚫 {e}", public=False)
+
+    actor = f"slack:{user.get('name') or user['id']}"
+    try:
+        if parsed["action"] == "whoami":
+            body = _whoami(user, permissions)
+        elif parsed["action"] == "audit":
+            body = _audit_text(conn, parsed["limit"])
+        else:
+            body = execute(conn, parsed, actor=actor)
     except DomainError as e:
+        slack_auth.record(conn, user, command, "error", f"{e.code} {e.message}")
         return _message(f"❌ `{e.code}` {e.message}", public=False)
-    return _message(body, public=parsed["action"] != "help", base_url=base_url)
+
+    slack_auth.record(conn, user, command, "ok")
+    private = parsed["action"] in ("help", "whoami", "audit")
+    return _message(body, public=not private, base_url=base_url)

@@ -55,6 +55,8 @@ QA 도구를 Slack 에서 바로 쓴다. 데이터를 바꾼 결과는 채널에
 /qa 계정 3                          테스트 계정 생성
 /qa 쿠폰 5 정액 3000 -1             쿠폰 발급 (만료일수 음수 = 만료 쿠폰)
 /qa 초기화 확인                      기본 데이터로 초기화 ('확인' 없으면 실행 안 됨)
+/qa 내권한                           내 Slack ID · 역할 확인
+/qa 로그 20                          최근 실행 기록 (누가 · 언제 · 무엇 · 성공/거부/실패)
 /qa help                            도움말
 ```
 
@@ -68,13 +70,26 @@ QA 도구를 Slack 에서 바로 쓴다. 데이터를 바꾼 결과는 채널에
 
 - Slack 요청 **서명(HMAC-SHA256) 검증**, 5분 넘은 요청은 재전송 공격으로 보고 거부. `SLACK_SIGNING_SECRET` 이 없으면 엔드포인트 자체가 404
 - 서비스 규칙 위반(예: 배송중 → 취소)은 에러 코드와 함께 **본인에게만** 보임
-- 명령어 해석 · 서명 검증 · 실행을 나눠서 Slack 없이 테스트 (`tests/test_slack_bot.py` 37건)
+- **권한(역할 · 채널)**: 등록된 사람만 쓴다. 서명 검증은 "Slack 에서 왔는지", 권한은 "누가 보냈는지"(Slack 이 보내는 user_id · channel_id)로 판단
+
+  | 역할 | 할 수 있는 것 | 예 |
+  |---|---|---|
+  | none (미등록) | help, 내권한 | 누구나 |
+  | viewer | + 조회 | 개발자 · 기획자 |
+  | tester | + 주문 · 상태 · 재고 · 계정 · 쿠폰 · 상품 | QA 엔지니어 |
+  | admin | + 초기화 · 로그 | QA 리드 |
+
+  권한 설정은 [`slack/permissions.example.yaml`](slack/permissions.example.yaml) 형식을 Render 환경변수 `SLACK_PERMISSIONS` 에 넣는다 (권한 변경에 커밋 불필요). **설정이 없으면 전부 잠김.** 허용 채널 지정 가능
+- **감사 로그**: 모든 명령(성공 · 거부 · 실패)을 기록, 데이터 초기화에도 지워지지 않음. 주문 이력엔 `slack:이름` 으로 실행자가 남는다
+- **사용량 제한**: 사람별 1분 10회(데이터 변경 명령만, `SLACK_RATE_LIMIT_PER_MINUTE`)
+- 명령어 해석 · 서명 검증 · 실행을 나눠서 Slack 없이 테스트 (`tests/test_slack_bot.py` 58건)
 
 ### 연결 방법 (한 번만)
 1. https://api.slack.com/apps → **Create New App → From a manifest** → 워크스페이스 선택 → [`slack/manifest.yml`](slack/manifest.yml) 내용 붙여넣기 → Create
 2. **Install to Workspace**
 3. **Basic Information → Signing Secret** 복사 → Render 서비스 **Environment** 에 `SLACK_SIGNING_SECRET` 으로 추가 (저장하면 재배포)
-4. Slack 에서 `/qa help`
+4. Slack 에서 `/qa 내권한` → 나온 사용자 ID 를 `SLACK_PERMISSIONS` 에 `admin` 으로 등록 (팀원도 같은 방식)
+5. `/qa help`
 
 > 무료 Render 는 잠들어 있으면 깨어나는 데 30초쯤 걸리는데 Slack 은 3초 안에 응답을 받아야 한다. 잠든 상태에서 첫 명령은 `dispatch_failed` 가 날 수 있으니, 데모 주소를 한 번 열어 깨운 뒤 쓰면 된다.
 
@@ -156,6 +171,8 @@ $ python qatool.py orders advance 1 --to RETURNED
 | `DEMO_MODE` | `false` | `true`면 웹 화면에 QA 토큰 자동 입력 (공개 데모용) |
 | `AUTO_SEED` | `false` | `true`면 시작 시 상품이 없을 때 시드 데이터 생성 |
 | `SLACK_SIGNING_SECRET` | (없음) | Slack 앱 Signing Secret. 없으면 `/slack/commands` 404 |
+| `SLACK_PERMISSIONS` | (없음 = 전부 잠김) | Slack 사용자별 역할 · 허용 채널 (YAML) |
+| `SLACK_RATE_LIMIT_PER_MINUTE` | `10` | 사람별 1분당 데이터 변경 명령 수 |
 | `PUBLIC_BASE_URL` | 요청 주소 | Slack 메시지 하단 링크에 쓸 공개 주소 |
 
 ## 설계 포인트
@@ -172,7 +189,7 @@ $ python qatool.py orders advance 1 --to RETURNED
 pip install -r requirements-dev.txt
 python -m playwright install chromium
 
-pytest                 # 전체 229건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
+pytest                 # 전체 249건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
 pytest -m "not e2e"    # 브라우저 없이 API + QA 도구만
 pytest -m e2e          # 웹 화면 E2E 만
 pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
@@ -184,7 +201,7 @@ pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 | `tests/e2e/` | 웹 화면 (Playwright, `data-testid` 로케이터). QA 도구: 주문 생성, 상태 이동·이력, 이동 가능 상태만 노출, 품절, 에러 토스트, 초기화 2단계 / 쇼핑몰·어드민: 비로그인 차단, 품절 버튼 비활성, 무료배송 경계 안내, 구매제한 에러, 쿠폰 적용, 결제 후 장바구니 비움, 배송 전만 취소, 상태 탭 건수·필터, 일괄 처리 부분 실패, **고객↔판매자 탭을 오가는 주문→발송→배송완료→반품→승인→재고 복구 전체 흐름**, 어드민 상품 등록→쇼핑몰 노출, 잘못된 상품 에러, 재고 0·판매중지가 쇼핑몰 버튼에 반영 | 20 |
 | `tests/test_qa_tools.py` | QA 도구 자체 검증 | 23 |
 | `tests/test_target_adapter.py` | 외부 서비스 연결: 템플릿 빈칸 감지, 운영 환경 거부, 환경변수 치환, 본문 템플릿, 데모 쇼핑몰을 설정만으로 연결(주문 → 배송완료 · 반품 → 재고 복구 · 서비스 에러 전달 · 잘못된 필드 매핑 감지), **모양이 다른 가짜 쇼핑몰**(중첩 필드 · 판매중지 제외 · 반품/쿠폰 미지원 안내 · 토큰 오류) | 16 |
-| `tests/test_slack_bot.py` | Slack `/qa`: 명령어 해석(한국어 별칭 · 건수 경계값 · 잘못된 입력), 서명 검증(변조 · 다른 시크릿 · 5분 경계), 엔드포인트 실행(주문 생성 · 상품 등록 · 이력 주체 slack · 규칙 위반은 비공개 · 초기화 확인) | 37 |
+| `tests/test_slack_bot.py` | Slack `/qa`: 명령어 해석(한국어 별칭 · 건수 경계값 · 잘못된 입력), 서명 검증(변조 · 다른 시크릿 · 5분 경계), 엔드포인트 실행(주문 생성 · 상품 등록 · 규칙 위반은 비공개 · 초기화 확인), **권한**(역할 매트릭스 11케이스 · 채널 제한 · 설정 없으면 잠김 · 거부 안내), 사용량 제한(60초 경계), 감사 로그(성공/거부/실패 · 초기화 후 유지), 이력에 실행자 이름 | 58 |
 
 - 사전조건(계정·쿠폰·재고·특정 상태 주문)은 전부 **QA 도구(`/qa/*`)로 준비**하고, 테스트 본문엔 검증 대상 호출과 assert 만 둔다.
 - CI 는 API / E2E 잡을 나눠 돌리고, JUnit XML 과 E2E 실패 시 Playwright trace·스크린샷을 artifact 로 올린다.
@@ -197,4 +214,5 @@ pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 - [x] v2: QA 도구 웹 화면 + Render 배포 설정
 - [x] v3: 쇼핑몰(`/shop`) + 판매자 어드민(`/admin`) 화면, 주문서 계산 API
 - [x] v4: Slack 슬래시 커맨드 `/qa` (서명 검증, 매니페스트로 앱 생성)
+- [x] v4.1: Slack 권한(역할 · 채널) · 감사 로그 · 사용량 제한
 - [x] v5: 외부 서비스 연결 — 설정 파일(`targets/*.yaml`) 빈칸만 채우면 다른 서비스에 QA 도구 적용

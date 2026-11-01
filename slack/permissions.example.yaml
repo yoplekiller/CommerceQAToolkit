@@ -1,0 +1,24 @@
+# Slack /qa 권한 설정 예시
+#
+# 적용 방법 (둘 중 하나)
+#   A) 이 내용을 Render 환경변수 SLACK_PERMISSIONS 에 그대로 붙여넣기  ← 권한 바꿀 때 커밋 없이 대시보드에서 수정
+#   B) slack/permissions.yaml 로 복사해서 커밋 (또는 SLACK_PERMISSIONS_FILE 로 경로 지정)
+#
+# 사용자 ID 찾기: 본인이 Slack 에서 `/qa 내권한` → `U0123ABCD` 형식 ID 가 나옴
+# 설정이 아예 없으면 전부 잠김 (help · 내권한만 가능)
+
+default_role: none        # 등록 안 된 사람: none(잠김) / viewer(조회만 열어두기)
+
+channels:                 # /qa 데이터 명령을 쓸 수 있는 채널 ID. 비우면 모든 채널 허용
+  - C0123QACHAN           # 예: #qa-test-data
+
+users:                    # Slack 사용자 ID: 역할
+  U0123ABCD: admin        # QA 리드 — 초기화 · 로그 포함 전부
+  U0456EFGH: tester       # QA 엔지니어 — 주문 · 상태 · 재고 · 계정 · 쿠폰 · 상품
+  U0789IJKL: viewer       # 개발자 · 기획자 — 조회만
+
+# 역할                 할 수 있는 명령
+# none                 help, 내권한
+# viewer               + 조회
+# tester               + 주문, 상태, 재고, 계정, 쿠폰, 상품   (1분 SLACK_RATE_LIMIT_PER_MINUTE 회, 기본 10)
+# admin                + 초기화, 로그
