@@ -42,6 +42,41 @@
 `render.yaml`(Render Blueprint) 설정으로 배포되고, main 에 push 하면 자동 재배포된다. 데모는 `DEMO_MODE=true` 라서 화면이 QA 토큰을 자동으로 채운다(가짜 데이터라 공개해도 되는 경우에만 켤 것).
 무료 플랜은 15분간 요청이 없으면 잠들고 깨어날 때 데이터가 초기화된다(`AUTO_SEED=true` 로 기본 상품 자동 생성). 첫 접속은 30초 정도 걸릴 수 있다.
 
+## Slack 슬래시 커맨드 (`/qa`)
+
+QA 도구를 Slack 에서 바로 쓴다. 데이터를 바꾼 결과는 채널에 공개돼 팀이 "누가 어떤 테스트 데이터를 만들었는지" 같이 본다.
+
+```
+/qa 주문 3건 정률쿠폰 배송완료      주문 자동생성 + 목표 상태까지 진행 (옵션 순서 자유, 회원=ID 지정 가능)
+/qa 상태 12 반품완료                주문 상태 자동완료 (정상 단계를 한 단계씩, 이력에 slack 으로 기록)
+/qa 조회 12                         주문 상세 + 처리 이력
+/qa 재고 4 0                        재고 설정 (0 = 품절)
+/qa 계정 3                          테스트 계정 생성
+/qa 쿠폰 5 정액 3000 -1             쿠폰 발급 (만료일수 음수 = 만료 쿠폰)
+/qa 초기화 확인                      기본 데이터로 초기화 ('확인' 없으면 실행 안 됨)
+/qa help                            도움말
+```
+
+```
+✅ 주문 3건 생성 (정률쿠폰 → 배송완료) · 회원 #4
+• #1 배송완료 · 화장지 30롤×1 · 무료배송 · 할인 1,980원 · 결제 17,820원
+• #2 배송완료 · 생수 2L x 6×1 · 배송비 3,000원 · 할인 598원 · 결제 8,382원
+• #3 배송완료 · 무선 이어폰×1 · 무료배송 · 할인 5,000원 · 결제 84,000원
+판매자 어드민 · 쇼핑몰 · QA 도구
+```
+
+- Slack 요청 **서명(HMAC-SHA256) 검증**, 5분 넘은 요청은 재전송 공격으로 보고 거부. `SLACK_SIGNING_SECRET` 이 없으면 엔드포인트 자체가 404
+- 서비스 규칙 위반(예: 배송중 → 취소)은 에러 코드와 함께 **본인에게만** 보임
+- 명령어 해석 · 서명 검증 · 실행을 나눠서 Slack 없이 테스트 (`tests/test_slack_bot.py` 34건)
+
+### 연결 방법 (한 번만)
+1. https://api.slack.com/apps → **Create New App → From a manifest** → 워크스페이스 선택 → [`slack/manifest.yml`](slack/manifest.yml) 내용 붙여넣기 → Create
+2. **Install to Workspace**
+3. **Basic Information → Signing Secret** 복사 → Render 서비스 **Environment** 에 `SLACK_SIGNING_SECRET` 으로 추가 (저장하면 재배포)
+4. Slack 에서 `/qa help`
+
+> 무료 Render 는 잠들어 있으면 깨어나는 데 30초쯤 걸리는데 Slack 은 3초 안에 응답을 받아야 한다. 잠든 상태에서 첫 명령은 `dispatch_failed` 가 날 수 있으니, 데모 주소를 한 번 열어 깨운 뒤 쓰면 된다.
+
 ## 실행
 
 ```bash
@@ -80,6 +115,8 @@ $ python qatool.py orders advance 1 --to RETURNED
 | `QA_BASE_URL` | `http://127.0.0.1:8000` | CLI가 호출할 서버 |
 | `DEMO_MODE` | `false` | `true`면 웹 화면에 QA 토큰 자동 입력 (공개 데모용) |
 | `AUTO_SEED` | `false` | `true`면 시작 시 상품이 없을 때 시드 데이터 생성 |
+| `SLACK_SIGNING_SECRET` | (없음) | Slack 앱 Signing Secret. 없으면 `/slack/commands` 404 |
+| `PUBLIC_BASE_URL` | 요청 주소 | Slack 메시지 하단 링크에 쓸 공개 주소 |
 
 ## 설계 포인트
 
@@ -95,7 +132,7 @@ $ python qatool.py orders advance 1 --to RETURNED
 pip install -r requirements-dev.txt
 python -m playwright install chromium
 
-pytest                 # 전체 149건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
+pytest                 # 전체 183건 (끝에 SPEC 규칙 R1~R15 별 테스트 수 출력)
 pytest -m "not e2e"    # 브라우저 없이 API + QA 도구만
 pytest -m e2e          # 웹 화면 E2E 만
 pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
@@ -106,6 +143,7 @@ pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 | `tests/api/` | 서비스 API: 도메인 규칙 R1~R15, 경계값(무료배송 19,799/19,800, 수량 0/1/99/100, 구매제한, 쿠폰 최소주문·최대할인), 상태 전이 전체, 주문서 계산·로그인·주문내역·어드민 목록 | 109 |
 | `tests/e2e/` | 웹 화면 (Playwright, `data-testid` 로케이터). QA 도구: 주문 생성, 상태 이동·이력, 이동 가능 상태만 노출, 품절, 에러 토스트, 초기화 2단계 / 쇼핑몰·어드민: 비로그인 차단, 품절 버튼 비활성, 무료배송 경계 안내, 구매제한 에러, 쿠폰 적용, 결제 후 장바구니 비움, 배송 전만 취소, 상태 탭 건수·필터, 일괄 처리 부분 실패, **고객↔판매자 탭을 오가는 주문→발송→배송완료→반품→승인→재고 복구 전체 흐름** | 17 |
 | `tests/test_qa_tools.py` | QA 도구 자체 검증 | 23 |
+| `tests/test_slack_bot.py` | Slack `/qa`: 명령어 해석(한국어 별칭 · 건수 경계값 · 잘못된 입력), 서명 검증(변조 · 다른 시크릿 · 5분 경계), 엔드포인트 실행(주문 생성 · 이력 주체 slack · 규칙 위반은 비공개 · 초기화 확인) | 34 |
 
 - 사전조건(계정·쿠폰·재고·특정 상태 주문)은 전부 **QA 도구(`/qa/*`)로 준비**하고, 테스트 본문엔 검증 대상 호출과 assert 만 둔다.
 - CI 는 API / E2E 잡을 나눠 돌리고, JUnit XML 과 E2E 실패 시 Playwright trace·스크린샷을 artifact 로 올린다.
@@ -117,4 +155,4 @@ pytest --rule R7       # 특정 규칙(docs/SPEC.md) 테스트만
 - [x] 서비스 API 자동화 테스트 스위트 (pytest, 도메인 규칙 R1~R15) + 웹 화면 E2E
 - [x] v2: QA 도구 웹 화면 + Render 배포 설정
 - [x] v3: 쇼핑몰(`/shop`) + 판매자 어드민(`/admin`) 화면, 주문서 계산 API
-- [ ] v4: Slack 슬래시 커맨드
+- [x] v4: Slack 슬래시 커맨드 `/qa` (서명 검증, 매니페스트로 앱 생성)

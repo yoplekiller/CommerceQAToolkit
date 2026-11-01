@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import qa_tools, services
 from app.db import connect, get_db_path, init_schema
-from app.routers import qa, service
+from app.routers import qa, service, slack
 from app.services import DomainError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -67,4 +67,5 @@ def create_app(db_path: str | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(service.router)
     app.include_router(qa.router)
+    app.include_router(slack.router)
     return app

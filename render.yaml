@@ -17,3 +17,8 @@ services:
         value: "true"
       - key: QA_TOKEN
         generateValue: true
+      - key: PUBLIC_BASE_URL
+        value: https://commerce-qa-toolkit.onrender.com
+      # Slack 앱의 Signing Secret. 값은 Render 대시보드에서 직접 입력 (레포에 넣지 않음)
+      - key: SLACK_SIGNING_SECRET
+        sync: false

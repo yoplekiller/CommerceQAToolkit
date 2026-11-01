@@ -1,0 +1,23 @@
+# Slack 앱 매니페스트: api.slack.com/apps → Create New App → From a manifest → 이 내용을 붙여넣기
+display_information:
+  name: QA Mall 봇
+  description: Commerce QA Toolkit 테스트 데이터 준비 (주문 자동생성 · 상태 자동완료 · 재고 · 쿠폰)
+  background_color: "#2563eb"
+features:
+  bot_user:
+    display_name: qa-mall
+    always_online: false
+  slash_commands:
+    - command: /qa
+      url: https://commerce-qa-toolkit.onrender.com/slack/commands
+      description: "주문 자동생성 · 상태 이동 · 재고 · 쿠폰 (도움말: /qa help)"
+      usage_hint: "주문 3건 정률쿠폰 배송완료"
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - commands
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
