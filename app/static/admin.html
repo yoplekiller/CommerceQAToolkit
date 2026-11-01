@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Mall · 판매자 어드민</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  main.admin { grid-template-columns: 1fr; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tabs button { border-radius: 16px; padding: 5px 12px; }
+  .tabs button.active { background: #111827; color: #fff; border-color: #111827; }
+  .tabs .count { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: #e5e7eb; color: #374151; font-size: 11px; }
+  .tabs button.active .count { background: #374151; color: #fff; }
+  .tabs .count.alert { background: var(--danger); color: #fff; }
+  .bulk { display: flex; gap: 6px; align-items: center; padding: 8px 10px; background: #f9fafb; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+  .bulk .spacer { flex: 1; }
+  .act { display: flex; gap: 4px; flex-wrap: wrap; }
+  .act button { padding: 4px 8px; font-size: 12px; }
+  tr.detail td { background: #f9fafb; font-size: 12px; color: #374151; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; padding: 4px 0; }
+  .detail-grid h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+  .low { color: var(--danger); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QA Mall 판매자센터</h1>
+  <nav>
+    <a href="/" data-testid="nav-qa">QA 도구</a>
+    <a href="/shop" data-testid="nav-shop">쇼핑몰</a>
+    <a href="/admin" class="active" data-testid="nav-admin">판매자 어드민</a>
+  </nav>
+  <div class="right">
+    <span class="sub">데모라 판매자 로그인 없이 열려 있습니다</span>
+  </div>
+</header>
+
+<main class="admin">
+  <section class="card">
+    <div class="toolbar">
+      <h2 style="margin:0">주문 관리</h2>
+      <span class="spacer"></span>
+      <button id="refresh" data-testid="admin-refresh">새로고침</button>
+    </div>
+    <p class="desc">신규 주문 확인 → 발송 → (택배사) 배송완료, 반품 요청 승인. 고객 화면의 주문 상태가 그대로 바뀝니다.</p>
+    <div id="tabs" class="tabs" data-testid="status-tabs"></div>
+
+    <div class="bulk" data-testid="bulk-bar">
+      <span id="selected-count">0건 선택</span>
+      <span class="spacer"></span>
+      <button data-bulk="PREPARING" data-testid="bulk-prepare">선택 주문 상품준비</button>
+      <button data-bulk="SHIPPING" data-testid="bulk-ship">선택 주문 발송</button>
+      <button data-bulk="DELIVERED" data-testid="bulk-deliver">선택 주문 배송완료</button>
+    </div>
+
+    <table data-testid="admin-order-table">
+      <thead><tr>
+        <th><input type="checkbox" id="check-all" data-testid="check-all"></th>
+        <th>주문</th><th>주문일시</th><th>회원</th><th>상품</th>
+        <th class="num">결제금액</th><th>상태</th><th>처리</th>
+      </tr></thead>
+      <tbody id="order-body"></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>상품 재고 현황</h2>
+    <p class="desc">재고 5개 이하는 빨간색으로 표시합니다. 재고 수정은 QA 도구에서 할 수 있어요.</p>
+    <table data-testid="admin-product-table">
+      <thead><tr><th>ID</th><th>상품</th><th class="num">가격</th><th class="num">재고</th><th>판매 상태</th></tr></thead>
+      <tbody id="product-body"></tbody>
+    </table>
+  </section>
+</main>
+
+<div id="toasts"></div>
+
+<script src="/static/common.js"></script>
+<script>
+// 상태별로 판매자/택배사가 할 수 있는 처리 (서버 상태 전이표와 같은 범위만 노출)
+const ACTIONS = {
+  PAID: [{ to: "PREPARING", label: "주문 확인(상품준비)", primary: true }, { to: "CANCELED", label: "판매자 취소" }],
+  PREPARING: [{ to: "SHIPPING", label: "발송 처리", primary: true }, { to: "CANCELED", label: "판매자 취소" }],
+  SHIPPING: [{ to: "DELIVERED", label: "배송완료 처리(택배사)", primary: true }],
+  RETURN_REQUESTED: [{ to: "RETURNED", label: "반품 승인(입고 확인)", primary: true }],
+};
+// 배송완료는 택배사, 나머지는 판매자가 처리하는 것으로 이력에 남긴다
+const actorFor = (to) => (to === "DELIVERED" ? "carrier" : "seller");
+const TABS = ["", "PAID", "PREPARING", "SHIPPING", "DELIVERED", "RETURN_REQUESTED", "CONFIRMED", "CANCELED", "RETURNED"];
+const TAB_LABEL = { "": "전체", PAID: "신규주문", RETURN_REQUESTED: "반품요청" };
+// 처리가 필요한 상태는 숫자를 빨간색으로
+const NEEDS_ACTION = new Set(["PAID", "PREPARING", "RETURN_REQUESTED"]);
+
+let currentTab = "";
+let orders = [];
+const selected = new Set();
+const openDetail = new Set();
+
+async function loadOrders() {
+  const data = await api("GET", `/admin/orders${currentTab ? `?status=${currentTab}` : ""}`);
+  orders = data.orders;
+  const total = Object.values(data.counts).reduce((a, b) => a + b, 0);
+  $("tabs").innerHTML = TABS.map((s) => {
+    const n = s ? data.counts[s] : total;
+    const alert = NEEDS_ACTION.has(s) && n > 0 ? " alert" : "";
+    return `<button class="${s === currentTab ? "active" : ""}" data-tab="${s}" data-testid="tab-${s || "ALL"}">
+      ${TAB_LABEL[s] || STATUS_LABEL[s]}<span class="count${alert}" data-testid="tab-count-${s || "ALL"}">${n}</span></button>`;
+  }).join("");
+
+  // 목록에서 사라진 주문은 선택 해제
+  const visible = new Set(orders.map((o) => o.id));
+  [...selected].forEach((id) => visible.has(id) || selected.delete(id));
+  updateSelected();
+
+  if (!orders.length) {
+    $("order-body").innerHTML = `<tr><td colspan="8" class="empty" data-testid="admin-empty">해당 상태의 주문이 없습니다.</td></tr>`;
+    return;
+  }
+  $("order-body").innerHTML = orders.map((o) => {
+    const acts = (ACTIONS[o.status] || []).map((a) =>
+      `<button class="${a.primary ? "primary" : ""}" data-id="${o.id}" data-to="${a.to}" data-testid="action-${o.id}-${a.to}">${a.label}</button>`).join("");
+    const detail = openDetail.has(o.id) ? `<tr class="detail" data-testid="admin-detail-${o.id}"><td></td><td colspan="7"><div class="detail-grid">
+        <div><h4>주문 상품</h4>${o.items.map((i) => `${esc(i.product_name)} ${won(i.unit_price)}원 × ${i.quantity}`).join("<br>")}</div>
+        <div><h4>결제 내역</h4>상품 ${won(o.items_amount)}원<br>배송비 ${won(o.shipping_fee)}원<br>할인 -${won(o.discount_amount)}원${o.coupon_id ? ` (쿠폰 #${o.coupon_id})` : ""}<br><b>결제 ${won(o.total_amount)}원</b></div>
+        <div><h4>처리 이력</h4>${o.history.map((h) => `${esc(h.changed_at.slice(11, 19))} ${STATUS_LABEL[h.to_status]} (${esc(h.actor)})`).join("<br>")}${o.cancel_reason ? `<br>사유: ${esc(o.cancel_reason)}` : ""}</div>
+      </div></td></tr>` : "";
+    return `<tr data-testid="admin-order-${o.id}">
+      <td><input type="checkbox" data-check="${o.id}" ${selected.has(o.id) ? "checked" : ""} data-testid="check-${o.id}"></td>
+      <td><span class="link" data-detail="${o.id}">#${o.id}</span></td>
+      <td>${esc(o.created_at.replace("T", " ").slice(5, 16))}</td>
+      <td>${o.user_id}</td>
+      <td>${o.items.map((i) => `${esc(i.product_name)} × ${i.quantity}`).join(", ")}</td>
+      <td class="num"><b>${won(o.total_amount)}</b></td>
+      <td>${statusBadge(o.status)}</td>
+      <td><div class="act">${acts || `<span class="tag">처리할 것 없음</span>`}</div></td>
+    </tr>${detail}`;
+  }).join("");
+}
+
+async function loadProducts() {
+  const products = await api("GET", "/products");
+  $("product-body").innerHTML = products.map((p) => `<tr data-testid="admin-product-${p.id}">
+    <td>${p.id}</td><td>${esc(p.name)}</td><td class="num">${won(p.price)}</td>
+    <td class="num ${p.stock <= 5 ? "low" : ""}" data-testid="admin-stock-${p.id}">${p.stock}</td>
+    <td>${p.is_active ? "판매중" : `<span class="tag warn">판매중지</span>`}</td>
+  </tr>`).join("");
+}
+
+function updateSelected() {
+  $("selected-count").textContent = `${selected.size}건 선택`;
+  $("check-all").checked = orders.length > 0 && orders.every((o) => selected.has(o.id));
+}
+
+async function changeStatus(id, to, options) {
+  return api("POST", `/orders/${id}/status`, {
+    status: to, actor: actorFor(to), reason: to === "CANCELED" ? "판매자 취소(재고/사정)" : undefined,
+  }, options);
+}
+
+$("tabs").onclick = (e) => {
+  const tab = e.target.closest("button")?.dataset.tab;
+  if (tab === undefined) return;
+  currentTab = tab;
+  selected.clear();
+  loadOrders().catch(() => {});
+};
+
+$("order-body").onclick = async (e) => {
+  const t = e.target;
+  if (t.dataset.check) {
+    const id = Number(t.dataset.check);
+    t.checked ? selected.add(id) : selected.delete(id);
+    return updateSelected();
+  }
+  if (t.dataset.detail) {
+    const id = Number(t.dataset.detail);
+    openDetail.has(id) ? openDetail.delete(id) : openDetail.add(id);
+    return loadOrders().catch(() => {});
+  }
+  if (t.dataset.to) {
+    await withButton(t, async () => {
+      await changeStatus(t.dataset.id, t.dataset.to);
+      toast(`주문 #${t.dataset.id} → ${STATUS_LABEL[t.dataset.to]}`);
+      await refreshAll();
+    });
+  }
+};
+
+$("check-all").onchange = (e) => {
+  orders.forEach((o) => (e.target.checked ? selected.add(o.id) : selected.delete(o.id)));
+  loadOrders().catch(() => {});
+};
+
+// 일괄 처리: 선택한 주문을 하나씩 처리하고 성공/실패 건수를 알려준다 (상태가 안 맞는 주문은 서버가 거부)
+document.querySelector(".bulk").onclick = async (e) => {
+  const to = e.target.dataset.bulk;
+  if (!to) return;
+  if (!selected.size) return toast("<code>NO_SELECTION</code> 처리할 주문을 선택하세요.", true);
+  await withButton(e.target, async () => {
+    let ok = 0;
+    const failed = [];
+    for (const id of [...selected].sort((a, b) => a - b)) {
+      try { await changeStatus(id, to, { quiet: true }); ok += 1; } catch (err) { failed.push(`#${id}`); }
+    }
+    toast(`${STATUS_LABEL[to]} 일괄 처리: 성공 ${ok}건${failed.length ? ` · 실패 ${failed.length}건 (${failed.join(", ")})` : ""}`, failed.length > 0 && ok === 0);
+    selected.clear();
+    await refreshAll();
+  });
+};
+
+$("refresh").onclick = () => refreshAll();
+
+const refreshAll = () => Promise.all([loadOrders(), loadProducts()]).catch(() => {});
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAll(); });
+refreshAll();
+</script>
+</body>
+</html>

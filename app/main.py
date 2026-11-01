@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import qa_tools, services
 from app.db import connect, get_db_path, init_schema
@@ -43,6 +44,16 @@ def create_app(db_path: str | None = None) -> FastAPI:
         """QA 도구 웹 화면"""
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/shop", include_in_schema=False)
+    def shop():
+        """고객 쇼핑몰 화면"""
+        return FileResponse(STATIC_DIR / "shop.html")
+
+    @app.get("/admin", include_in_schema=False)
+    def admin():
+        """판매자 어드민 화면"""
+        return FileResponse(STATIC_DIR / "admin.html")
+
     @app.get("/config", include_in_schema=False)
     def config():
         """웹 화면 설정. 상태 전이표(이동 가능한 상태만 버튼으로 보여주기용)와, 데모 모드일 때만 QA 토큰을 내려준다."""
@@ -53,6 +64,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
             "transitions": {k: sorted(v) for k, v in services.ALLOWED_TRANSITIONS.items()},
         }
 
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(service.router)
     app.include_router(qa.router)
     return app

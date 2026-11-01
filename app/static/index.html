@@ -4,76 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Commerce QA Toolkit</title>
-<style>
-  :root {
-    --bg: #f5f6f8; --card: #fff; --line: #e3e6ea; --text: #1f2328; --muted: #6b7280;
-    --primary: #2563eb; --primary-dark: #1d4ed8; --danger: #dc2626; --ok: #16a34a;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
-  header { background: #111827; color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  header h1 { font-size: 18px; margin: 0; }
-  header .sub { color: #9ca3af; font-size: 13px; }
-  header .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-  header input { width: 170px; }
-  .badge-demo { background: #f59e0b; color: #111; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
-  main { display: grid; grid-template-columns: 340px 1fr; gap: 16px; padding: 16px 24px 40px; align-items: start; }
-  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  .card h2 { font-size: 15px; margin: 0 0 4px; }
-  .card .desc { color: var(--muted); font-size: 12px; margin: 0 0 12px; }
-  .card h3 { font-size: 13px; margin: 14px 0 8px; padding-top: 12px; border-top: 1px solid var(--line); }
-  .card h3:first-of-type { border-top: 0; padding-top: 0; margin-top: 4px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
-  input, select { width: 100%; padding: 7px 8px; border: 1px solid #cfd4da; border-radius: 6px; font-size: 13px; background: #fff; color: var(--text); }
-  .row { display: flex; gap: 8px; }
-  .row > * { flex: 1; min-width: 0; }
-  button { padding: 7px 12px; border: 1px solid #cfd4da; border-radius: 6px; background: #fff; cursor: pointer; font-size: 13px; white-space: nowrap; }
-  button:hover { background: #f3f4f6; }
-  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-  button.primary:hover { background: var(--primary-dark); }
-  button.danger { color: var(--danger); border-color: #fca5a5; }
-  button.danger.armed { background: var(--danger); color: #fff; }
-  button.block { width: 100%; margin-top: 12px; }
-  button:disabled { opacity: .5; cursor: default; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-  th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  tr.history td { background: #f9fafb; color: var(--muted); font-size: 12px; }
-  .link { color: var(--primary); cursor: pointer; text-decoration: underline; }
-  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
-  .toolbar select { width: auto; }
-  .toolbar .spacer { flex: 1; }
-  .status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-  .s-PAID { background: #dbeafe; color: #1e40af; }
-  .s-PREPARING { background: #e0e7ff; color: #3730a3; }
-  .s-SHIPPING { background: #fef3c7; color: #92400e; }
-  .s-DELIVERED { background: #dcfce7; color: #166534; }
-  .s-CONFIRMED { background: #d1fae5; color: #065f46; }
-  .s-CANCELED { background: #f3f4f6; color: #4b5563; }
-  .s-RETURN_REQUESTED { background: #ffedd5; color: #9a3412; }
-  .s-RETURNED { background: #fee2e2; color: #991b1b; }
-  .move { display: flex; gap: 4px; }
-  .move select { width: 120px; padding: 4px; }
-  .move button { padding: 4px 8px; }
-  .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #f3f4f6; color: #4b5563; margin-right: 4px; }
-  .tag.warn { background: #fee2e2; color: #991b1b; }
-  .stock { display: flex; gap: 4px; }
-  .stock input { width: 80px; padding: 4px 6px; }
-  .stock button { padding: 4px 8px; }
-  .result { margin-top: 10px; font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
-  .empty { color: var(--muted); text-align: center; padding: 24px; }
-  #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
-  .toast { background: #111827; color: #fff; padding: 10px 14px; border-radius: 6px; font-size: 13px; max-width: 420px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
-  .toast.error { background: var(--danger); }
-  .toast code { background: rgba(255,255,255,.2); padding: 0 4px; border-radius: 3px; }
-</style>
+<link rel="stylesheet" href="/static/common.css">
 </head>
 <body>
 <header>
   <h1>Commerce QA Toolkit</h1>
-  <span class="sub">커머스 주문 테스트 데이터 · 상태 준비 도구</span>
+  <nav>
+    <a href="/" class="active" data-testid="nav-qa">QA 도구</a>
+    <a href="/shop" data-testid="nav-shop">쇼핑몰</a>
+    <a href="/admin" data-testid="nav-admin">판매자 어드민</a>
+  </nav>
   <div class="right">
     <span id="demo-badge" class="badge-demo" hidden>DEMO · 데이터는 재시작 시 초기화</span>
     <input id="token" type="password" placeholder="X-QA-Token" data-testid="qa-token" hidden>
@@ -173,49 +113,12 @@
 
 <div id="toasts"></div>
 
+<script src="/static/common.js"></script>
 <script>
-const STATUS_LABEL = {
-  PAID: "결제완료", PREPARING: "상품준비중", SHIPPING: "배송중", DELIVERED: "배송완료",
-  CONFIRMED: "구매확정", CANCELED: "주문취소", RETURN_REQUESTED: "반품요청", RETURNED: "반품완료",
-};
 let config = { statuses: [], transitions: {} };
 const openHistory = new Set();
-
-const $ = (id) => document.getElementById(id);
-const won = (n) => n.toLocaleString("ko-KR");
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const numOrNull = (id) => ($(id).value === "" ? null : Number($(id).value));
-const statusBadge = (s) => `<span class="status s-${s}" data-testid="status-badge">${STATUS_LABEL[s] || s}</span>`;
-
-function toast(message, isError = false) {
-  const el = document.createElement("div");
-  el.className = "toast" + (isError ? " error" : "");
-  el.innerHTML = message;
-  el.dataset.testid = isError ? "toast-error" : "toast";
-  $("toasts").appendChild(el);
-  setTimeout(() => el.remove(), isError ? 6000 : 3000);
-}
-
-async function api(method, path, body) {
-  const res = await fetch(path, {
-    method,
-    headers: { "Content-Type": "application/json", "X-QA-Token": $("token").value },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = data.error || { code: res.status, message: typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail) };
-    toast(`<code>${esc(err.code)}</code> ${esc(err.message)}`, true);
-    throw new Error(err.code);
-  }
-  return data;
-}
-
-// 버튼을 누르는 동안 비활성화해서 중복 요청을 막는다
-async function withButton(btn, fn) {
-  btn.disabled = true;
-  try { await fn(); } catch (e) { /* 에러는 api() 에서 토스트로 표시 */ } finally { btn.disabled = false; }
-}
+// QA 도구 API 는 토큰 헤더가 필요하다 (common.js 의 api() 가 이 함수를 호출)
+window.apiHeaders = () => ({ "X-QA-Token": $("token").value });
 
 // 현재 상태에서 갈 수 있는 모든 상태 (자동완료 대상)
 function reachable(from) {

@@ -13,6 +13,11 @@ class UserCreate(BaseModel):
     name: str
 
 
+class LoginIn(BaseModel):
+    """데모용 간이 로그인 요청 (이메일만)."""
+    email: str
+
+
 class CartAdd(BaseModel):
     """장바구니 담기 요청."""
     product_id: int
@@ -30,6 +35,13 @@ class OrderCreate(BaseModel):
     """바로 주문 요청."""
     user_id: int
     items: list[OrderItemIn]
+    coupon_id: int | None = None
+
+
+class QuoteIn(BaseModel):
+    """주문서 금액 계산 요청. items 를 안 주면 장바구니 기준."""
+    user_id: int
+    items: list[OrderItemIn] | None = None
     coupon_id: int | None = None
 
 

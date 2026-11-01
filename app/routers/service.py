@@ -1,9 +1,9 @@
 """테스트 대상 서비스 API (고객/판매자/택배사가 쓰는 API)."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from app import services
 from app.deps import get_conn
-from app.schemas import CartAdd, CheckoutIn, OrderCreate, ReasonIn, StatusChange, UserCreate
+from app.schemas import CartAdd, CheckoutIn, LoginIn, OrderCreate, QuoteIn, ReasonIn, StatusChange, UserCreate
 
 router = APIRouter()
 
@@ -24,6 +24,24 @@ def get_product(product_id: int, conn=Depends(get_conn)):
 def create_user(body: UserCreate, conn=Depends(get_conn)):
     """회원 가입"""
     return services.create_user(conn, body.email, body.name)
+
+
+@router.post("/users/login")
+def login(body: LoginIn, conn=Depends(get_conn)):
+    """데모용 간이 로그인 (이메일만, 비밀번호 없음)"""
+    return services.login(conn, body.email)
+
+
+@router.get("/users/{user_id}")
+def get_user(user_id: int, conn=Depends(get_conn)):
+    """회원 정보"""
+    return services.get_user(conn, user_id)
+
+
+@router.get("/users/{user_id}/orders")
+def list_user_orders(user_id: int, conn=Depends(get_conn)):
+    """내 주문내역 (최신순)"""
+    return services.list_user_orders(conn, user_id)
 
 
 @router.get("/users/{user_id}/coupons")
@@ -55,6 +73,16 @@ def create_order(body: OrderCreate, conn=Depends(get_conn)):
     """바로 주문 (주문 생성 = 결제완료)"""
     items = [item.model_dump() for item in body.items]
     return services.create_order(conn, body.user_id, items, body.coupon_id)
+
+
+@router.post("/orders/quote")
+def quote_order(body: QuoteIn, conn=Depends(get_conn)):
+    """주문서 금액 미리보기 (저장 안 함). items 를 안 주면 장바구니 기준"""
+    if body.items is None:
+        items = [{"product_id": c["product_id"], "quantity": c["quantity"]} for c in services.get_cart(conn, body.user_id)]
+    else:
+        items = [item.model_dump() for item in body.items]
+    return services.quote_order(conn, body.user_id, items, body.coupon_id)
 
 
 @router.post("/orders/checkout", status_code=201)
@@ -91,3 +119,9 @@ def request_return(order_id: int, body: ReasonIn | None = None, conn=Depends(get
 def confirm_purchase(order_id: int, conn=Depends(get_conn)):
     """고객 구매확정 (배송완료 상태에서만)"""
     return services.confirm_purchase(conn, order_id)
+
+
+@router.get("/admin/orders")
+def admin_list_orders(status: str | None = None, limit: int = Query(100, ge=1, le=200), conn=Depends(get_conn)):
+    """판매자 어드민 주문 목록 (최신순, status 로 필터) + 상태별 건수"""
+    return {"orders": services.list_orders(conn, status, limit), "counts": services.count_orders_by_status(conn)}

@@ -123,6 +123,14 @@ def create_user(conn: sqlite3.Connection, email: str, name: str, is_test: bool =
     return get_user(conn, cur.lastrowid)
 
 
+def login(conn: sqlite3.Connection, email: str) -> dict:
+    """데모용 간이 로그인: 이메일만으로 회원을 찾는다 (비밀번호 없음). 없으면 USER_NOT_FOUND(404)."""
+    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        raise DomainError("USER_NOT_FOUND", f"가입되지 않은 이메일입니다: {email}", 404)
+    return dict(row)
+
+
 def list_coupons(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     """회원이 가진 쿠폰 전체 (사용·만료 쿠폰 포함). used_order_id 가 있으면 이미 쓴 쿠폰."""
     get_user(conn, user_id)
@@ -268,14 +276,16 @@ def get_order(conn: sqlite3.Connection, order_id: int) -> dict:
     return order
 
 
-def create_order(
+def quote_order(
     conn: sqlite3.Connection,
     user_id: int,
     items: list[dict],
     coupon_id: int | None = None,
-    actor: str = "customer",
 ) -> dict:
-    """주문 생성 = 결제 완료(모의 결제). 재고 차감과 쿠폰 사용이 같은 트랜잭션에서 처리된다."""
+    """주문서 금액 계산. 주문 생성과 같은 검사(R1~R5, R8)를 하지만 저장은 하지 않는다.
+
+    쇼핑몰 화면이 배송비·할인·결제금액을 직접 계산하지 않고 이 결과를 그대로 보여준다.
+    """
     if not items:
         raise DomainError("EMPTY_ORDER", "주문할 상품이 없습니다.")
     get_user(conn, user_id)
@@ -292,7 +302,8 @@ def create_order(
     for product_id, quantity in quantities.items():
         product = get_product(conn, product_id)
         _check_orderable(product, quantity)
-        lines.append((product["id"], product["name"], product["price"], quantity))
+        lines.append({"product_id": product["id"], "product_name": product["name"],
+                      "unit_price": product["price"], "quantity": quantity})
         items_amount += product["price"] * quantity
 
     discount = 0
@@ -301,7 +312,28 @@ def create_order(
         discount = calc_discount(coupon, items_amount)
 
     shipping_fee = calc_shipping_fee(items_amount)
-    total = items_amount + shipping_fee - discount
+    return {
+        "items": lines,
+        "items_amount": items_amount,
+        "shipping_fee": shipping_fee,
+        "discount_amount": discount,
+        "total_amount": items_amount + shipping_fee - discount,
+        "free_shipping_remaining": max(FREE_SHIPPING_THRESHOLD - items_amount, 0),
+    }
+
+
+def create_order(
+    conn: sqlite3.Connection,
+    user_id: int,
+    items: list[dict],
+    coupon_id: int | None = None,
+    actor: str = "customer",
+) -> dict:
+    """주문 생성 = 결제 완료(모의 결제). 재고 차감과 쿠폰 사용이 같은 트랜잭션에서 처리된다."""
+    quote = quote_order(conn, user_id, items, coupon_id)
+    lines = [(i["product_id"], i["product_name"], i["unit_price"], i["quantity"]) for i in quote["items"]]
+    items_amount, shipping_fee = quote["items_amount"], quote["shipping_fee"]
+    discount, total = quote["discount_amount"], quote["total_amount"]
     ts = _ts()
     with conn:
         for product_id, _, _, quantity in lines:
@@ -331,6 +363,34 @@ def create_order(
         if coupon_id is not None:
             conn.execute("UPDATE coupons SET used_order_id = ? WHERE id = ?", (order_id, coupon_id))
     return get_order(conn, order_id)
+
+
+def list_user_orders(conn: sqlite3.Connection, user_id: int) -> list[dict]:
+    """고객의 주문내역 (최신순)."""
+    get_user(conn, user_id)
+    ids = conn.execute("SELECT id FROM orders WHERE user_id = ? ORDER BY id DESC", (user_id,))
+    return [get_order(conn, row["id"]) for row in ids]
+
+
+def list_orders(conn: sqlite3.Connection, status: str | None = None, limit: int = 100) -> list[dict]:
+    """전체 주문 목록 (최신순). status 를 주면 그 상태만. 판매자 어드민·QA 도구 주문 표에서 쓴다."""
+    if status is not None and status not in STATUSES:
+        raise DomainError("INVALID_STATUS", f"존재하지 않는 상태입니다: {status}")
+    query, params = "SELECT id FROM orders", []
+    if status is not None:
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    return [get_order(conn, row["id"]) for row in conn.execute(query, params)]
+
+
+def count_orders_by_status(conn: sqlite3.Connection) -> dict[str, int]:
+    """상태별 주문 수. 판매자 어드민 상태 탭의 숫자."""
+    counts = {status: 0 for status in STATUSES}
+    for row in conn.execute("SELECT status, COUNT(*) AS n FROM orders GROUP BY status"):
+        counts[row["status"]] = row["n"]
+    return counts
 
 
 def checkout_cart(conn: sqlite3.Connection, user_id: int, coupon_id: int | None = None) -> dict:

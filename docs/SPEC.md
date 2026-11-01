@@ -9,7 +9,10 @@
 |---|---|---|
 | 커머스 주문 API (FastAPI + SQLite) | 테스트 대상 서비스. 상품/회원/쿠폰/장바구니/주문 | Claude |
 | QA 도구 API (`/qa/*`) + CLI(`qatool.py`) | 주문 자동생성, 상태 자동완료, 장바구니 자동 담기, 재고 조정, 계정/쿠폰 발급, 초기화 | Claude |
-| 자동화 테스트 (pytest API / Playwright / Postman) | 위 서비스를 검증. 사전조건은 QA 도구로 준비 | 사용자 직접 |
+| 쇼핑몰 화면 (`/shop`) | 고객: 간이 로그인, 상품 담기/바로구매, 쿠폰 선택, 결제, 주문내역(취소·반품·구매확정) | Claude |
+| 판매자 어드민 화면 (`/admin`) | 판매자·택배사: 상태 탭, 주문 확인·발송·배송완료·반품 승인·판매자 취소, 일괄 처리, 재고 현황 | Claude |
+| QA 도구 화면 (`/`) | 테스터: 위 두 화면 테스트용 데이터 준비 | Claude |
+| 자동화 테스트 (pytest API / Playwright E2E) | 위 서비스와 화면을 검증. 사전조건은 QA 도구로 준비 | Claude (변경 기록은 docs/changes/) |
 
 ## 2. 주문 상태 흐름
 
@@ -73,16 +76,21 @@ stateDiagram-v2
 |---|---|---|
 | GET | `/products`, `/products/{id}` | 상품 목록 / 상세 |
 | POST | `/users` | 회원 가입 |
+| POST | `/users/login` | 데모용 간이 로그인 (이메일만) |
+| GET | `/users/{id}` | 회원 정보 |
+| GET | `/users/{id}/orders` | 내 주문내역 (최신순) |
 | GET | `/users/{id}/coupons` | 보유 쿠폰 |
 | GET / POST | `/users/{id}/cart` | 장바구니 조회 / 담기 |
 | DELETE | `/users/{id}/cart/{product_id}` | 장바구니 삭제 |
 | POST | `/orders` | 바로 주문 |
+| POST | `/orders/quote` | 주문서 금액 계산 (저장 안 함, items 생략 시 장바구니 기준, 무료배송까지 남은 금액 포함) |
 | POST | `/orders/checkout` | 장바구니 주문 |
 | GET | `/orders/{id}` | 주문 상세 (항목 + 상태 이력) |
 | POST | `/orders/{id}/status` | 판매자/택배사 상태 변경 (한 단계, 구매확정·반품요청 불가) |
 | POST | `/orders/{id}/cancel` | 고객 취소 |
 | POST | `/orders/{id}/return` | 고객 반품 요청 |
 | POST | `/orders/{id}/confirm` | 고객 구매확정 |
+| GET | `/admin/orders` | 판매자 주문 목록 (status 필터) + 상태별 건수 |
 
 ## 5. QA 도구
 
@@ -135,4 +143,5 @@ QA 도구 API는 `X-QA-Token` 헤더가 맞아야 동작하고, `QA_TOOLS_ENABLE
 1. **v1 (완료)**: 서비스 API + QA 도구 API + CLI
 2. **v2 (완료)**: QA 도구 웹 화면 (`/`) + Render 공개 데모 배포 설정
 3. **테스트 스위트 (완료)**: pytest API 테스트(R1~R15 전부) + Playwright 웹 화면 E2E, 사전조건은 QA 도구로 준비
-4. v3: Slack 슬래시 커맨드
+4. **v3 (완료)**: 쇼핑몰(`/shop`) · 판매자 어드민(`/admin`) 화면 + 주문서 계산 API
+5. v4: Slack 슬래시 커맨드

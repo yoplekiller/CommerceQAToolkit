@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Mall · 쇼핑몰</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  main.shop { grid-template-columns: 1fr 360px; }
+  @media (max-width: 1000px) { main.shop { grid-template-columns: 1fr; } }
+  .products { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+  .product { border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 6px; background: #fff; }
+  .product.unavailable { opacity: .6; }
+  .product .name { font-weight: 600; }
+  .product .price { font-size: 16px; font-weight: 700; }
+  .product .tags { min-height: 20px; }
+  .product .actions { display: flex; gap: 4px; margin-top: auto; }
+  .product .actions input { width: 56px; padding: 5px; }
+  .product .actions button { flex: 1; padding: 6px 4px; }
+  .sticky { position: sticky; top: 16px; }
+  .line { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+  .line .x { padding: 2px 6px; font-size: 12px; }
+  .sum { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+  .sum.total { font-size: 16px; font-weight: 700; border-top: 1px solid var(--line); margin-top: 6px; padding-top: 10px; }
+  .discount { color: var(--danger); }
+  .hint { background: #eff6ff; color: #1e40af; border-radius: 6px; padding: 8px; font-size: 12px; margin-top: 8px; }
+  .hint.free { background: #ecfdf5; color: #065f46; }
+  .inline-error { color: var(--danger); font-size: 12px; margin-top: 8px; }
+  .mode-link { font-size: 12px; }
+  .order { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .order-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .order-head .total { margin-left: auto; font-weight: 700; }
+  .order-items { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  .order-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .steps { display: flex; gap: 4px; margin: 10px 0 4px; }
+  .steps span { flex: 1; text-align: center; font-size: 11px; padding: 4px 0; border-radius: 4px; background: #f3f4f6; color: #9ca3af; }
+  .steps span.done { background: #dbeafe; color: #1e40af; }
+  .steps span.now { background: var(--primary); color: #fff; font-weight: 600; }
+  .timeline { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .login-box { display: flex; gap: 6px; align-items: center; }
+  .login-box input { width: 190px; }
+  .who { color: #e5e7eb; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QA Mall</h1>
+  <nav>
+    <a href="/" data-testid="nav-qa">QA 도구</a>
+    <a href="/shop" class="active" data-testid="nav-shop">쇼핑몰</a>
+    <a href="/admin" data-testid="nav-admin">판매자 어드민</a>
+  </nav>
+  <div class="right">
+    <div id="logged-out" class="login-box">
+      <input id="login-email" type="email" placeholder="이메일 (데모: 비밀번호 없음)" data-testid="login-email">
+      <button id="login-btn" data-testid="login-button">로그인</button>
+      <button id="signup-btn" class="primary" data-testid="signup-button">회원가입</button>
+    </div>
+    <div id="logged-in" class="login-box" hidden>
+      <span id="login-user" class="who" data-testid="login-user"></span>
+      <button id="logout-btn" data-testid="logout-button">로그아웃</button>
+    </div>
+  </div>
+</header>
+
+<main class="shop">
+  <div>
+    <section class="card">
+      <h2>상품</h2>
+      <p class="desc">19,800원 이상 주문하면 무료배송 · 한정판은 1회 구매 수량이 제한됩니다.</p>
+      <div id="products" class="products" data-testid="product-list"></div>
+    </section>
+
+    <section class="card">
+      <div class="toolbar">
+        <h2 style="margin:0">내 주문내역</h2>
+        <span class="spacer"></span>
+        <button id="orders-refresh" data-testid="orders-refresh">새로고침</button>
+      </div>
+      <div id="orders" data-testid="my-orders"></div>
+    </section>
+  </div>
+
+  <aside class="sticky">
+    <section class="card" data-testid="checkout-panel">
+      <div class="toolbar">
+        <h2 id="checkout-title" style="margin:0">장바구니</h2>
+        <span class="spacer"></span>
+        <a id="back-to-cart" class="link mode-link" hidden data-testid="back-to-cart">장바구니로 돌아가기</a>
+      </div>
+      <div id="checkout-lines" data-testid="checkout-lines"></div>
+
+      <label for="coupon-select">쿠폰</label>
+      <select id="coupon-select" data-testid="coupon-select"></select>
+
+      <div id="quote" data-testid="quote" style="margin-top:12px"></div>
+      <div id="quote-error" class="inline-error" data-testid="quote-error"></div>
+      <button id="pay-btn" class="primary block" data-testid="pay-button" disabled>결제하기</button>
+      <p class="desc" style="margin-top:8px">모의 결제라 실제 결제는 일어나지 않습니다. 쿠폰은 <a href="/">QA 도구</a>에서 발급할 수 있어요.</p>
+    </section>
+  </aside>
+</main>
+
+<div id="toasts"></div>
+
+<script src="/static/common.js"></script>
+<script>
+const FLOW = ["PAID", "PREPARING", "SHIPPING", "DELIVERED", "CONFIRMED"];
+let user = null;           // 로그인한 회원
+let buyNow = null;         // 바로구매 모드면 {product_id, quantity}, 장바구니 모드면 null
+let cart = [];
+const openTimeline = new Set();
+
+function requireLogin() {
+  if (user) return true;
+  toast("<code>LOGIN_REQUIRED</code> 로그인이 필요합니다.", true);
+  $("login-email").focus();
+  return false;
+}
+
+function setUser(u) {
+  user = u;
+  if (u) localStorage.setItem("shopUserId", u.id); else localStorage.removeItem("shopUserId");
+  $("logged-out").hidden = !!u;
+  $("logged-in").hidden = !u;
+  $("login-user").textContent = u ? `${u.email} (회원 #${u.id})` : "";
+  buyNow = null;
+  refreshAll();
+}
+
+// ---------- 상품 ----------
+
+async function loadProducts() {
+  const products = await api("GET", "/products");
+  $("products").innerHTML = products.map((p) => {
+    const unavailable = !p.is_active || p.stock === 0;
+    const reason = !p.is_active ? "판매중지" : p.stock === 0 ? "품절" : "";
+    const tags = [];
+    if (!p.is_active) tags.push(`<span class="tag warn">판매중지</span>`);
+    else if (p.stock === 0) tags.push(`<span class="tag warn">품절</span>`);
+    else if (p.stock <= 5) tags.push(`<span class="tag warn">${p.stock}개 남음</span>`);
+    if (p.max_per_order !== null) tags.push(`<span class="tag">1회 ${p.max_per_order}개</span>`);
+    return `<div class="product${unavailable ? " unavailable" : ""}" data-testid="product-card-${p.id}">
+      <div class="name">${esc(p.name)}</div>
+      <div class="price">${won(p.price)}원</div>
+      <div class="tags">${tags.join("")}</div>
+      <div class="actions">
+        <input type="number" min="1" value="1" id="qty-${p.id}" data-testid="qty-${p.id}" ${unavailable ? "disabled" : ""}>
+        <button data-cart="${p.id}" data-testid="add-cart-${p.id}" ${unavailable ? "disabled" : ""}>${reason || "장바구니"}</button>
+        <button data-buy="${p.id}" class="primary" data-testid="buy-now-${p.id}" ${unavailable ? "disabled" : ""}>바로구매</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("products").onclick = async (e) => {
+  const cartId = e.target.dataset.cart;
+  const buyId = e.target.dataset.buy;
+  if (!cartId && !buyId) return;
+  if (!requireLogin()) return;
+  const id = Number(cartId || buyId);
+  const quantity = Number($(`qty-${id}`).value);
+  if (cartId) {
+    await withButton(e.target, async () => {
+      cart = await api("POST", `/users/${user.id}/cart`, { product_id: id, quantity });
+      buyNow = null;
+      toast("장바구니에 담았습니다.");
+      await renderCheckout();
+    });
+  } else {
+    buyNow = { product_id: id, quantity };
+    await renderCheckout();
+  }
+};
+
+// ---------- 장바구니 / 주문서 ----------
+
+async function loadCoupons() {
+  const select = $("coupon-select");
+  const selected = select.value;
+  if (!user) { select.innerHTML = `<option value="">로그인 후 사용 가능</option>`; return; }
+  const now = new Date();
+  const usable = (await api("GET", `/users/${user.id}/coupons`))
+    .filter((c) => c.used_order_id === null && new Date(c.expires_at) > now);
+  select.innerHTML = `<option value="">쿠폰 사용 안 함</option>` + usable.map((c) => {
+    const amount = c.discount_type === "FIXED" ? `${won(c.value)}원 할인` : `${c.value}% 할인${c.max_discount ? ` (최대 ${won(c.max_discount)}원)` : ""}`;
+    const min = c.min_order_amount ? ` · ${won(c.min_order_amount)}원 이상` : "";
+    return `<option value="${c.id}">${esc(c.code)} · ${amount}${min}</option>`;
+  }).join("");
+  if ([...select.options].some((o) => o.value === selected)) select.value = selected;
+}
+
+function checkoutItems() {
+  return buyNow ? [buyNow] : cart.map((c) => ({ product_id: c.product_id, quantity: c.quantity }));
+}
+
+async function renderCheckout() {
+  $("checkout-title").textContent = buyNow ? "바로 구매" : "장바구니";
+  $("back-to-cart").hidden = !buyNow;
+  $("quote").innerHTML = "";
+  $("quote-error").textContent = "";
+  $("pay-btn").disabled = true;
+
+  if (!user) { $("checkout-lines").innerHTML = `<div class="empty">로그인하면 장바구니를 볼 수 있어요.</div>`; return; }
+  if (!buyNow) cart = await api("GET", `/users/${user.id}/cart`);
+  const items = checkoutItems();
+  if (!items.length) { $("checkout-lines").innerHTML = `<div class="empty" data-testid="cart-empty">장바구니가 비어 있습니다.</div>`; return; }
+
+  // 금액은 화면에서 계산하지 않고 서버 주문서 계산(/orders/quote) 결과를 그대로 보여준다
+  const res = await fetch("/orders/quote", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: user.id, items, coupon_id: numOrNull("coupon-select") }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    // 품절·쿠폰 조건 미달 등은 토스트 대신 주문서 안에 표시하고 결제를 막는다
+    $("checkout-lines").innerHTML = renderLines(items.map((i) => ({ ...i, product_name: `상품 #${i.product_id}`, unit_price: 0 })), false);
+    $("quote-error").innerHTML = `<code>${esc(data.error.code)}</code> ${esc(data.error.message)}`;
+    return;
+  }
+  $("checkout-lines").innerHTML = renderLines(data.items, !buyNow);
+  $("quote").innerHTML = `
+    <div class="sum"><span>상품금액</span><span data-testid="quote-items">${won(data.items_amount)}원</span></div>
+    <div class="sum"><span>배송비</span><span data-testid="quote-shipping">${data.shipping_fee ? won(data.shipping_fee) + "원" : "무료"}</span></div>
+    <div class="sum discount"><span>쿠폰 할인</span><span data-testid="quote-discount">-${won(data.discount_amount)}원</span></div>
+    <div class="sum total"><span>결제금액</span><span data-testid="quote-total">${won(data.total_amount)}원</span></div>
+    ${data.free_shipping_remaining
+      ? `<div class="hint" data-testid="free-shipping-hint">${won(data.free_shipping_remaining)}원 더 담으면 무료배송</div>`
+      : `<div class="hint free" data-testid="free-shipping-hint">무료배송 적용</div>`}`;
+  $("pay-btn").disabled = false;
+}
+
+function renderLines(lines, removable) {
+  return lines.map((l) => `<div class="line" data-testid="checkout-line-${l.product_id}">
+    <span>${esc(l.product_name)} × ${l.quantity}</span>
+    <span>${l.unit_price ? won(l.unit_price * l.quantity) + "원" : ""}
+      ${removable ? `<button class="x" data-remove="${l.product_id}" data-testid="remove-${l.product_id}">삭제</button>` : ""}</span>
+  </div>`).join("");
+}
+
+$("checkout-lines").onclick = async (e) => {
+  const id = e.target.dataset.remove;
+  if (!id) return;
+  await withButton(e.target, async () => {
+    await api("DELETE", `/users/${user.id}/cart/${id}`);
+    await renderCheckout();
+  });
+};
+
+$("back-to-cart").onclick = () => { buyNow = null; renderCheckout(); };
+$("coupon-select").onchange = () => renderCheckout();
+
+$("pay-btn").onclick = (e) => withButton(e.target, async () => {
+  const coupon_id = numOrNull("coupon-select");
+  const order = buyNow
+    ? await api("POST", "/orders", { user_id: user.id, items: [buyNow], coupon_id })
+    : await api("POST", "/orders/checkout", { user_id: user.id, coupon_id });
+  toast(`주문 #${order.id} 결제완료 (${won(order.total_amount)}원)`);
+  buyNow = null;
+  await refreshAll();
+});
+
+// ---------- 내 주문내역 ----------
+
+function renderSteps(o) {
+  if (o.status === "CANCELED") return `<div class="steps"><span class="now">주문취소</span></div>`;
+  if (o.status === "RETURN_REQUESTED" || o.status === "RETURNED") {
+    return `<div class="steps">${["DELIVERED", "RETURN_REQUESTED", "RETURNED"].map((s) =>
+      `<span class="${s === o.status ? "now" : (s === "DELIVERED" || o.status === "RETURNED") ? "done" : ""}">${STATUS_LABEL[s]}</span>`).join("")}</div>`;
+  }
+  const idx = FLOW.indexOf(o.status);
+  return `<div class="steps" data-testid="order-steps-${o.id}">${FLOW.map((s, i) =>
+    `<span class="${i === idx ? "now" : i < idx ? "done" : ""}">${STATUS_LABEL[s]}</span>`).join("")}</div>`;
+}
+
+function orderActions(o) {
+  const buttons = [];
+  if (o.status === "PAID" || o.status === "PREPARING") buttons.push(`<button data-act="cancel" data-id="${o.id}" data-testid="cancel-${o.id}">주문 취소</button>`);
+  if (o.status === "DELIVERED") {
+    buttons.push(`<button class="primary" data-act="confirm" data-id="${o.id}" data-testid="confirm-${o.id}">구매확정</button>`);
+    buttons.push(`<button data-act="return" data-id="${o.id}" data-testid="return-${o.id}">반품 신청</button>`);
+  }
+  buttons.push(`<button data-act="timeline" data-id="${o.id}" data-testid="timeline-${o.id}">${openTimeline.has(o.id) ? "이력 닫기" : "이력 보기"}</button>`);
+  return buttons.join("");
+}
+
+async function loadOrders() {
+  if (!user) { $("orders").innerHTML = `<div class="empty">로그인하면 주문내역을 볼 수 있어요.</div>`; return; }
+  const orders = await api("GET", `/users/${user.id}/orders`);
+  if (!orders.length) { $("orders").innerHTML = `<div class="empty" data-testid="orders-empty">아직 주문이 없습니다.</div>`; return; }
+  $("orders").innerHTML = orders.map((o) => `<div class="order" data-testid="my-order-${o.id}">
+    <div class="order-head">
+      <b>주문 #${o.id}</b>${statusBadge(o.status)}
+      <span class="desc" style="margin:0">${esc(o.created_at.replace("T", " ").slice(0, 16))}</span>
+      <span class="total">${won(o.total_amount)}원</span>
+    </div>
+    <div class="order-items">${o.items.map((i) => `${esc(i.product_name)} × ${i.quantity}`).join(", ")}
+      · 배송비 ${o.shipping_fee ? won(o.shipping_fee) + "원" : "무료"}${o.discount_amount ? ` · 할인 ${won(o.discount_amount)}원` : ""}</div>
+    ${renderSteps(o)}
+    <div class="order-actions">${orderActions(o)}</div>
+    ${openTimeline.has(o.id) ? `<div class="timeline" data-testid="timeline-body-${o.id}">${o.history.map((h) =>
+      `${esc(h.changed_at.replace("T", " ").slice(0, 19))} · ${STATUS_LABEL[h.to_status]} (${esc(h.actor)})`).join("<br>")}</div>` : ""}
+  </div>`).join("");
+}
+
+$("orders").onclick = async (e) => {
+  const { act, id } = e.target.dataset;
+  if (!act) return;
+  if (act === "timeline") {
+    const n = Number(id);
+    openTimeline.has(n) ? openTimeline.delete(n) : openTimeline.add(n);
+    return loadOrders();
+  }
+  const paths = { cancel: "cancel", confirm: "confirm", return: "return" };
+  const done = { cancel: "주문을 취소했습니다.", confirm: "구매를 확정했습니다.", return: "반품을 신청했습니다." };
+  await withButton(e.target, async () => {
+    await api("POST", `/orders/${id}/${paths[act]}`, act === "confirm" ? undefined : {});
+    toast(`주문 #${id}: ${done[act]}`);
+    await refreshAll();
+  });
+};
+
+$("orders-refresh").onclick = () => refreshAll();
+
+// ---------- 로그인 ----------
+
+$("login-btn").onclick = (e) => withButton(e.target, async () => {
+  setUser(await api("POST", "/users/login", { email: $("login-email").value.trim() }));
+  toast("로그인했습니다.");
+});
+
+$("signup-btn").onclick = (e) => withButton(e.target, async () => {
+  const email = $("login-email").value.trim();
+  setUser(await api("POST", "/users", { email, name: email.split("@")[0] || "고객" }));
+  toast("회원가입이 완료되었습니다.");
+});
+
+$("logout-btn").onclick = () => setUser(null);
+
+async function refreshAll() {
+  await Promise.all([loadProducts(), loadCoupons(), loadOrders()]).catch(() => {});
+  await renderCheckout().catch(() => {});
+}
+
+// 다른 탭(판매자 어드민)에서 상태를 바꾸고 돌아오면 최신 상태로
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshAll(); });
+
+(async function init() {
+  // 저장된 회원이 아직 있으면 로그인 상태 유지 (데모 서버 재시작으로 DB 가 비었으면 로그아웃 상태로)
+  const savedId = localStorage.getItem("shopUserId");
+  const res = savedId ? await fetch(`/users/${savedId}`) : null;
+  setUser(res && res.ok ? await res.json() : null);
+})();
+</script>
+</body>
+</html>
