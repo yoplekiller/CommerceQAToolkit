@@ -1,5 +1,7 @@
 # Commerce QA Toolkit
 
+[![Tests](https://github.com/yoplekiller/CommerceQAToolkit/actions/workflows/tests.yml/badge.svg)](https://github.com/yoplekiller/CommerceQAToolkit/actions/workflows/tests.yml)
+
 오픈마켓형 커머스 주문 서비스(테스트 대상 API)와, 테스트 사전조건을 명령 한 줄로 만들어주는 **QA 도구**
 (주문 자동생성 / 상태 자동완료 / 장바구니 자동 담기 / 재고 조정 / 계정·쿠폰 발급 / 초기화).
 
